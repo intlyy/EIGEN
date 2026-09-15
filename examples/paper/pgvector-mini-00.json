@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "experiment_name": "pgvector-mini-00",
+  "engine_profile": "pgvector-ann-dense",
+  "artifact_dir": "./artifacts/pgvector-mini-00",
+  "execution": {
+    "dataset": "pgvector-mini-00",
+    "dataset_description": "Set the dataset name and characteristics before experiments.",
+    "host": "127.0.0.1",
+    "connection_params": {
+      "port": 5432,
+      "dbname": "postgres",
+      "user": "postgres"
+    },
+    "distance": "l2",
+    "vector_size": 128,
+    "top_k": 10,
+    "search_parallel": 16,
+    "upload_parallel": 16,
+    "batch_size": 1024,
+    "hardware": {
+      "cpu_cores_per_database": 16,
+      "memory_gib_per_database": 64
+    }
+  },
+  "runner": {
+    "plugin": "vector-db-benchmark",
+    "settings": {
+      "repo_path": "../../external/vector-db-benchmark",
+      "python_executable": "python",
+      "dataset_path": "../../data/minidbs/mini-00.hdf5",
+      "state_reuse": false,
+      "keep_workspace": true,
+      "timeout_s": 86400,
+      "pass_env": [
+        "PGVECTOR_PASSWORD"
+      ]
+    }
+  },
+  "lifecycle": {
+    "mode": "docker_compose",
+    "settings": {
+      "compose_file": "./deploy/pgvector.compose.yml",
+      "project_name": "mutune-pgvector-mini-00",
+      "endpoint": "127.0.0.1",
+      "environment": {
+        "MUTUNE_PORT": "5432"
+      },
+      "ready_check": {
+        "kind": "tcp",
+        "host": "127.0.0.1",
+        "port": 5432,
+        "timeout_s": 180
+      },
+      "command_timeout_s": 300,
+      "remove_volumes": true,
+      "server_config": {
+        "kind": "postgresql",
+        "service": "pgvector"
+      }
+    }
+  },
+  "tuning": {
+    "strategy": "calm",
+    "budget": 60,
+    "initial_samples": 14,
+    "proposals_per_round": 12,
+    "evaluations_per_round": 4,
+    "regions_per_round": 1,
+    "seed": 42,
+    "recall_threshold": 0.9,
+    "objectives": [
+      {
+        "metric": "qps",
+        "direction": "maximize"
+      }
+    ]
+  },
+  "llm": {
+    "model": "gpt-5.4",
+    "temperature": null,
+    "max_tokens": null,
+    "extra_body": {
+      "reasoning_effort": "medium"
+    }
+  }
+}

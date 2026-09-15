@@ -1,0 +1,142 @@
+"""Pgvector searcher with HNSW, IVFFlat, and exact-search support.
+
+This module is copied over the matching vector-db-benchmark module inside an
+isolated muTune evaluation workspace.  It deliberately has no dependency on
+muTune at runtime.
+"""
+
+from typing import List, Mapping, Tuple
+
+import numpy as np
+import psycopg
+from pgvector.psycopg import register_vector
+
+from dataset_reader.base_reader import Query
+from engine.base_client import IncompatibilityError
+from engine.base_client.distances import Distance
+from engine.base_client.search import BaseSearcher
+from engine.clients.pgvector.config import get_db_config
+from engine.clients.pgvector.parser import PgVectorConditionParser
+
+
+_INDEX_TYPE_ALIASES = {
+    "hnsw": "hnsw",
+    "ivfflat": "ivfflat",
+    "ivf_flat": "ivfflat",
+    "ivf": "ivfflat",
+    "exact": "exact",
+    "flat": "exact",
+}
+
+
+def _index_type(params: Mapping) -> str:
+    value = params.get("index_type", "hnsw")
+    if not isinstance(value, str):
+        raise IncompatibilityError("pgvector search config.index_type must be a string")
+    normalized = _INDEX_TYPE_ALIASES.get(value.strip().lower())
+    if normalized is None:
+        supported = ", ".join(sorted({"exact", "hnsw", "ivfflat"}))
+        raise IncompatibilityError(
+            f"Unsupported pgvector index_type {value!r}; expected one of: {supported}"
+        )
+    return normalized
+
+
+def _positive_int(params: Mapping, key: str, label: str) -> int:
+    value = params.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise IncompatibilityError(f"pgvector {label} must be a positive integer")
+    return value
+
+
+def _non_negative_int(params: Mapping, key: str, label: str) -> int:
+    value = params.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise IncompatibilityError(f"pgvector {label} must be a non-negative integer")
+    return value
+
+
+class PgVectorSearcher(BaseSearcher):
+    conn = None
+    cur = None
+    distance = None
+    search_params = {}
+    parser = PgVectorConditionParser()
+
+    @classmethod
+    def init_client(cls, host, distance, connection_params: dict, search_params: dict):
+        cls.conn = psycopg.connect(**get_db_config(host, connection_params))
+        register_vector(cls.conn)
+        cls.cur = cls.conn.cursor()
+
+        config = search_params.get("config", {})
+        if not isinstance(config, Mapping):
+            raise IncompatibilityError("pgvector search config must be an object")
+        selected_index = _index_type(config)
+
+        if selected_index == "hnsw":
+            ef_search = _positive_int(config, "hnsw_ef", "config.hnsw_ef")
+            cls.cur.execute(
+                "SELECT set_config('hnsw.ef_search', %s, false)",
+                (str(ef_search),),
+            )
+            cls.cur.execute("SET enable_indexscan = on")
+            cls.cur.execute("SET enable_seqscan = off")
+        elif selected_index == "ivfflat":
+            probes = _positive_int(
+                config, "ivfflat_probes", "config.ivfflat_probes"
+            )
+            cls.cur.execute(
+                "SELECT set_config('ivfflat.probes', %s, false)",
+                (str(probes),),
+            )
+            cls.cur.execute("SET enable_indexscan = on")
+            cls.cur.execute("SET enable_seqscan = off")
+        else:
+            # Exact mode remains exact even if a caller intentionally reuses a
+            # table that still contains an ANN index.
+            if "exact_parallel_workers" in config:
+                parallel_workers = _non_negative_int(
+                    config,
+                    "exact_parallel_workers",
+                    "config.exact_parallel_workers",
+                )
+                cls.cur.execute(
+                    "SELECT set_config('max_parallel_workers_per_gather', %s, false)",
+                    (str(parallel_workers),),
+                )
+            cls.cur.execute("SET enable_seqscan = on")
+            cls.cur.execute("SET enable_indexscan = off")
+            cls.cur.execute("SET enable_bitmapscan = off")
+
+        if distance == Distance.COSINE:
+            cls.query = (
+                "SELECT id, embedding <=> %s AS _score "
+                "FROM items ORDER BY _score LIMIT %s"
+            )
+        elif distance == Distance.L2:
+            cls.query = (
+                "SELECT id, embedding <-> %s AS _score "
+                "FROM items ORDER BY _score LIMIT %s"
+            )
+        else:
+            raise IncompatibilityError(
+                f"Unsupported pgvector distance metric: {distance}"
+            )
+
+    @classmethod
+    def search_one(cls, query: Query, top) -> List[Tuple[int, float]]:
+        # The current benchmark adapter does not yet implement metadata filters.
+        cls.cur.execute(
+            cls.query, (np.array(query.vector), top), binary=True, prepare=True
+        )
+        return cls.cur.fetchall()
+
+    @classmethod
+    def delete_client(cls):
+        if cls.cur:
+            cls.cur.close()
+        if cls.conn:
+            cls.conn.close()
+        cls.cur = None
+        cls.conn = None

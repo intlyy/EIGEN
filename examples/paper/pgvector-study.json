@@ -1,0 +1,13 @@
+{
+  "name": "pgvector-study",
+  "minidbs": [
+    "pgvector-mini-00.json",
+    "pgvector-mini-01.json",
+    "pgvector-mini-02.json"
+  ],
+  "full_database": "pgvector-full.json",
+  "minidb_manifest": "../../data/minidbs/manifest.json",
+  "artifact_dir": "./artifacts/pgvector",
+  "top_l": 5,
+  "stability_weight": 1.0
+}

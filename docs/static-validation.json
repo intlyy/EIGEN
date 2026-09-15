@@ -1,0 +1,29 @@
+{
+  "python_sources_parsed": 61,
+  "profiles_validated": 7,
+  "declarative_regions_rendered": 21,
+  "project_schemas_validated": 13,
+  "study_schemas_validated": 3,
+  "default_objectives": [
+    {
+      "metric": "qps",
+      "direction": "maximize"
+    }
+  ],
+  "errors": [],
+  "experiments_executed": false,
+  "unit_tests_executed": false,
+  "ruff_passed": true,
+  "ruff_output": "All checks passed!",
+  "broken_local_document_links": [],
+  "checked_content_sha256": "957290abb23583cdc2c074028ead02a2d8d4423a36821d5a81a0ecfbb16a6e8e",
+  "date": "2026-09-14",
+  "python_version": "3.11.9",
+  "limitations": [
+    "No unit tests executed",
+    "No MiniDB construction or database workloads executed",
+    "No LLM calls",
+    "No external benchmark or database-driver compatibility run",
+    "Deployment YAML and Dockerfiles reviewed as text; Docker was not invoked"
+  ]
+}

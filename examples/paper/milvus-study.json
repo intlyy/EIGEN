@@ -1,0 +1,13 @@
+{
+  "name": "milvus-study",
+  "minidbs": [
+    "milvus-mini-00.json",
+    "milvus-mini-01.json",
+    "milvus-mini-02.json"
+  ],
+  "full_database": "milvus-full.json",
+  "minidb_manifest": "../../data/minidbs/manifest.json",
+  "artifact_dir": "./artifacts/milvus",
+  "top_l": 5,
+  "stability_weight": 1.0
+}

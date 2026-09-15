@@ -1,0 +1,13 @@
+{
+  "name": "qdrant-study",
+  "minidbs": [
+    "qdrant-mini-00.json",
+    "qdrant-mini-01.json",
+    "qdrant-mini-02.json"
+  ],
+  "full_database": "qdrant-full.json",
+  "minidb_manifest": "../../data/minidbs/manifest.json",
+  "artifact_dir": "./artifacts/qdrant",
+  "top_l": 5,
+  "stability_weight": 1.0
+}

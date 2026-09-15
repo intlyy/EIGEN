@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "experiment_name": "qdrant-dry-run",
+  "engine_profile": "qdrant-hnsw-dense",
+  "artifact_dir": "./artifacts/qdrant-dry-run",
+  "execution": {
+    "dataset": "qdrant-dry-run",
+    "dataset_description": "Set the dataset name and characteristics before experiments.",
+    "host": "http://127.0.0.1:6333",
+    "connection_params": {
+      "grpc_port": 6334,
+      "timeout": 120
+    },
+    "distance": "l2",
+    "vector_size": 128,
+    "top_k": 10,
+    "search_parallel": 16,
+    "upload_parallel": 16,
+    "batch_size": 1024,
+    "hardware": {
+      "cpu_cores_per_database": 16,
+      "memory_gib_per_database": 64
+    }
+  },
+  "runner": {
+    "plugin": "dry-run",
+    "settings": {
+      "metrics": {
+        "qps": 1000.0,
+        "recall": 0.95
+      },
+      "deterministic_jitter": 0.1
+    }
+  },
+  "lifecycle": {
+    "mode": "external",
+    "settings": {
+      "ready_check": {
+        "kind": "none"
+      }
+    }
+  },
+  "tuning": {
+    "objectives": [{"metric": "qps", "direction": "maximize"}],
+    "strategy": "random",
+    "budget": 6,
+    "initial_samples": 2,
+    "proposals_per_round": 4,
+    "evaluations_per_round": 2,
+    "seed": 42
+  },
+  "llm": null
+}

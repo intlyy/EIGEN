@@ -1,0 +1,754 @@
+{
+  "schema_version": 1,
+  "id": "qdrant-native-dense",
+  "display_name": "Qdrant native dense search",
+  "adapter": {
+    "plugin": "vector-db-benchmark",
+    "engine": "qdrant",
+    "api_version": "1",
+    "options": {}
+  },
+  "capabilities": {
+    "vector_kinds": [
+      "dense"
+    ],
+    "distances": [
+      "l2",
+      "cosine",
+      "dot"
+    ],
+    "filters": [
+      "exact",
+      "range",
+      "geo"
+    ],
+    "indexes": [
+      "hnsw"
+    ],
+    "notes": [
+      "Qdrant has one dense ANN index family: HNSW.",
+      "index.mode=plain disables dense vector indexing and performs an exact full scan; it is not a second ANN index family.",
+      "Scalar, product, and binary quantization are modeled as storage/search modes supported by the local Qdrant 1.16 benchmark server, not as index families.",
+      "Table 4 parameters are exposed; ranges are repository choices, not recovered experimental settings."
+    ]
+  },
+  "experiment": {
+    "template": {
+      "name": "mutune",
+      "engine": "qdrant",
+      "connection_params": {
+        "timeout": 30
+      },
+      "collection_params": {
+        "hnsw_config": {},
+        "optimizers_config": {},
+        "vectors_config": {}
+      },
+      "upload_params": {
+        "parallel": 16,
+        "batch_size": 1024
+      },
+      "search_params": [
+        {
+          "parallel": 1,
+          "top": 10,
+          "config": {
+            "exact": true
+          }
+        }
+      ]
+    },
+    "runtime_defaults": {
+      "experiment_name": "mutune",
+      "connection_params": {},
+      "upload_parallel": 16,
+      "batch_size": 1024,
+      "search_parallel": 1,
+      "top_k": 10
+    },
+    "runtime_bindings": {
+      "experiment_name": [
+        {
+          "pointer": "/name"
+        }
+      ],
+      "connection_params": [
+        {
+          "pointer": "/connection_params",
+          "mode": "merge"
+        }
+      ],
+      "upload_parallel": [
+        {
+          "pointer": "/upload_params/parallel"
+        }
+      ],
+      "batch_size": [
+        {
+          "pointer": "/upload_params/batch_size"
+        }
+      ],
+      "search_parallel": [
+        {
+          "pointer": "/search_params/0/parallel"
+        }
+      ],
+      "top_k": [
+        {
+          "pointer": "/search_params/0/top"
+        }
+      ]
+    },
+    "metric_pointers": {
+      "qps": "/results/rps",
+      "recall": "/results/mean_precisions",
+      "mean_latency": "/results/mean_time",
+      "p95_latency": "/results/p95_time"
+    }
+  },
+  "search_space": {
+    "domain": "qdrant-native-dense-v1",
+    "partition_by": [
+      "index.mode",
+      "search.mode",
+      "quantization.type"
+    ],
+    "parameters": {
+      "index.mode": {
+        "kind": "categorical",
+        "default": "hnsw",
+        "choices": [
+          "hnsw",
+          "plain"
+        ],
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/optimizers_config",
+            "mode": "container",
+            "value_map": {
+              "plain": {
+                "indexing_threshold": 0
+              },
+              "hnsw": {}
+            }
+          }
+        ],
+        "description": "Dense search structure. hnsw forces indexing for non-trivial segments; plain disables vector indexing and uses exact scanning."
+      },
+      "search.mode": {
+        "kind": "categorical",
+        "default": "approximate",
+        "choices": [
+          "approximate",
+          "exact"
+        ],
+        "effect": "search",
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/search_params/0/config/exact",
+            "value_map": {
+              "approximate": false,
+              "exact": true
+            }
+          }
+        ],
+        "description": "Whether a query traverses HNSW or explicitly bypasses it for an exact full scan."
+      },
+      "quantization.type": {
+        "kind": "categorical",
+        "default": "none",
+        "choices": [
+          "none",
+          "scalar",
+          "product",
+          "binary"
+        ],
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          },
+          {
+            "parameter": "search.mode",
+            "op": "eq",
+            "value": "approximate"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/collection_params/quantization_config",
+            "value_map": {
+              "none": null,
+              "scalar": {
+                "scalar": {
+                  "type": "int8"
+                }
+              },
+              "product": {
+                "product": {}
+              },
+              "binary": {
+                "binary": {
+                  "query_encoding": "default"
+                }
+              }
+            },
+            "mode": "container"
+          }
+        ],
+        "description": "Optional Qdrant vector quantization for approximate search. Exact mode omits quantization so that it scans full-precision vectors."
+      },
+      "hnsw.m": {
+        "kind": "integer",
+        "default": 16,
+        "bounds": [
+          4,
+          64
+        ],
+        "step": 1,
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/collection_params/hnsw_config/m"
+          }
+        ],
+        "description": "Number of HNSW graph edges per node."
+      },
+      "hnsw.ef_construction": {
+        "kind": "integer",
+        "default": 128,
+        "bounds": [
+          8,
+          512
+        ],
+        "step": 1,
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/collection_params/hnsw_config/ef_construct"
+          }
+        ],
+        "description": "Candidate-list width used to build the HNSW graph."
+      },
+      "hnsw.full_scan_threshold": {
+        "kind": "integer",
+        "default": 10000,
+        "bounds": [
+          1,
+          1000000
+        ],
+        "step": 1,
+        "log": true,
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/collection_params/hnsw_config/full_scan_threshold"
+          }
+        ],
+        "description": "Query-planner threshold in KiB below which Qdrant prefers a full scan over HNSW traversal."
+      },
+      "hnsw.on_disk": {
+        "kind": "boolean",
+        "default": false,
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/collection_params/hnsw_config/on_disk"
+          }
+        ],
+        "description": "Store the HNSW graph on disk instead of keeping it in RAM."
+      },
+      "hnsw.ef_search": {
+        "kind": "integer",
+        "default": 128,
+        "bounds": [
+          16,
+          1024
+        ],
+        "step": 1,
+        "effect": "search",
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          },
+          {
+            "parameter": "search.mode",
+            "op": "eq",
+            "value": "approximate"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/search_params/0/config/hnsw_ef"
+          }
+        ],
+        "description": "Candidate-list width for approximate HNSW queries."
+      },
+      "vectors.on_disk": {
+        "kind": "boolean",
+        "default": false,
+        "effect": "collection",
+        "bindings": [
+          {
+            "pointer": "/collection_params/vectors_config/on_disk"
+          }
+        ],
+        "description": "Store original dense vectors on disk rather than in RAM."
+      },
+      "optimizer.default_segments": {
+        "kind": "integer",
+        "default": 2,
+        "bounds": [
+          1,
+          16
+        ],
+        "step": 1,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/optimizers_config/default_segment_number"
+          }
+        ],
+        "description": "Target number of optimized segments; useful for matching search parallelism."
+      },
+      "quantization.rescore": {
+        "kind": "boolean",
+        "default": true,
+        "effect": "search",
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "ne",
+            "value": "none"
+          },
+          {
+            "parameter": "search.mode",
+            "op": "eq",
+            "value": "approximate"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/search_params/0/config/quantization/rescore"
+          }
+        ],
+        "description": "Re-score quantized candidates using the original vectors."
+      },
+      "quantization.oversampling": {
+        "kind": "float",
+        "default": 2.0,
+        "bounds": [
+          1.0,
+          8.0
+        ],
+        "step": 0.25,
+        "effect": "search",
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "ne",
+            "value": "none"
+          },
+          {
+            "parameter": "search.mode",
+            "op": "eq",
+            "value": "approximate"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/search_params/0/config/quantization/oversampling"
+          }
+        ],
+        "description": "Multiplier for quantized candidates selected before optional rescoring."
+      },
+      "quantization.scalar_always_ram": {
+        "kind": "boolean",
+        "default": true,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/quantization_config/scalar/always_ram"
+          }
+        ],
+        "description": "Keep quantized vectors in RAM; conditional instance of Table 4 always_ram.",
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "eq",
+            "value": "scalar"
+          }
+        ]
+      },
+      "quantization.product_always_ram": {
+        "kind": "boolean",
+        "default": true,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/quantization_config/product/always_ram"
+          }
+        ],
+        "description": "Keep quantized vectors in RAM; conditional instance of Table 4 always_ram.",
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "eq",
+            "value": "product"
+          }
+        ]
+      },
+      "quantization.binary_always_ram": {
+        "kind": "boolean",
+        "default": true,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/quantization_config/binary/always_ram"
+          }
+        ],
+        "description": "Keep quantized vectors in RAM; conditional instance of Table 4 always_ram.",
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "eq",
+            "value": "binary"
+          }
+        ]
+      },
+      "quantization.quantile": {
+        "kind": "float",
+        "default": 0.99,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/quantization_config/scalar/quantile"
+          }
+        ],
+        "description": "",
+        "bounds": [
+          0.5,
+          1.0
+        ],
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "eq",
+            "value": "scalar"
+          }
+        ]
+      },
+      "quantization.compression": {
+        "kind": "categorical",
+        "default": "x16",
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/quantization_config/product/compression"
+          }
+        ],
+        "description": "",
+        "choices": [
+          "x4",
+          "x8",
+          "x16",
+          "x32",
+          "x64"
+        ],
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "eq",
+            "value": "product"
+          }
+        ]
+      },
+      "quantization.encoding": {
+        "kind": "categorical",
+        "default": "one_bit",
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/quantization_config/binary/encoding"
+          }
+        ],
+        "description": "",
+        "choices": [
+          "one_bit",
+          "two_bits",
+          "one_and_half_bits"
+        ],
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "eq",
+            "value": "binary"
+          }
+        ]
+      },
+      "quantization.ignore": {
+        "kind": "boolean",
+        "default": false,
+        "effect": "search",
+        "bindings": [
+          {
+            "pointer": "/search_params/0/config/quantization/ignore"
+          }
+        ],
+        "description": "",
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "in",
+            "value": [
+              "scalar",
+              "product",
+              "binary"
+            ]
+          }
+        ]
+      },
+      "hnsw.max_indexing_threads": {
+        "kind": "integer",
+        "default": 0,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/hnsw_config/max_indexing_threads"
+          }
+        ],
+        "description": "",
+        "bounds": [
+          0,
+          16
+        ],
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ]
+      },
+      "hnsw.payload_m": {
+        "kind": "integer",
+        "default": 16,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/hnsw_config/payload_m"
+          }
+        ],
+        "description": "",
+        "bounds": [
+          0,
+          64
+        ],
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ]
+      },
+      "hnsw.inline_storage": {
+        "kind": "boolean",
+        "default": false,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/hnsw_config/inline_storage"
+          }
+        ],
+        "description": "Qdrant 1.16 inline storage requires vector quantization.",
+        "active_if": [
+          {
+            "parameter": "quantization.type",
+            "op": "in",
+            "value": [
+              "scalar",
+              "product",
+              "binary"
+            ]
+          }
+        ]
+      },
+      "payload.on_disk": {
+        "kind": "boolean",
+        "default": false,
+        "effect": "collection",
+        "bindings": [
+          {
+            "pointer": "/collection_params/on_disk_payload"
+          }
+        ],
+        "description": ""
+      },
+      "optimizer.max_segment_size": {
+        "kind": "integer",
+        "default": 200000,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/optimizers_config/max_segment_size"
+          }
+        ],
+        "description": "Paper Table 4 optimizer setting.",
+        "bounds": [
+          1000,
+          1000000
+        ]
+      },
+      "optimizer.memmap_threshold": {
+        "kind": "integer",
+        "default": 200000,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/optimizers_config/memmap_threshold"
+          }
+        ],
+        "description": "Deprecated but accepted by Qdrant 1.16; included to reflect paper Table 4.",
+        "bounds": [
+          1000,
+          1000000
+        ]
+      },
+      "optimizer.indexing_threshold": {
+        "kind": "integer",
+        "default": 1,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/optimizers_config/indexing_threshold"
+          }
+        ],
+        "description": "Paper Table 4 optimizer setting.",
+        "bounds": [
+          1,
+          100000
+        ],
+        "active_if": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ]
+      },
+      "optimizer.flush_interval_sec": {
+        "kind": "integer",
+        "default": 5,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/optimizers_config/flush_interval_sec"
+          }
+        ],
+        "description": "Paper Table 4 optimizer setting.",
+        "bounds": [
+          1,
+          60
+        ]
+      },
+      "optimizer.max_optimization_threads": {
+        "kind": "integer",
+        "default": 2,
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/collection_params/optimizers_config/max_optimization_threads"
+          }
+        ],
+        "description": "Paper Table 4 optimizer setting.",
+        "bounds": [
+          1,
+          16
+        ]
+      }
+    },
+    "constraints": [
+      {
+        "id": "ef-search-at-least-top-k",
+        "left": {
+          "source": "candidate",
+          "key": "hnsw.ef_search"
+        },
+        "op": "ge",
+        "right": {
+          "source": "runtime",
+          "key": "top_k"
+        },
+        "when": [
+          {
+            "parameter": "index.mode",
+            "op": "eq",
+            "value": "hnsw"
+          },
+          {
+            "parameter": "search.mode",
+            "op": "eq",
+            "value": "approximate"
+          }
+        ],
+        "message": "hnsw.ef_search must be at least top_k"
+      }
+    ]
+  },
+  "lifecycle": {
+    "reset": "adapter",
+    "readiness": "adapter",
+    "rebuild_effects": [
+      "collection",
+      "index"
+    ],
+    "restart_effects": [
+      "server"
+    ],
+    "reusable_effects": [
+      "search"
+    ],
+    "supports_search_batching": true
+  }
+}

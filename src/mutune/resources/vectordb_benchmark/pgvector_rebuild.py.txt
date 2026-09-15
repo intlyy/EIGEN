@@ -1,0 +1,55 @@
+"""Rebuild a pgvector ANN index without reading or uploading dataset rows."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import time
+from pathlib import Path
+
+from benchmark.config_read import read_dataset_config, read_engine_configs
+from benchmark.dataset import Dataset
+from engine.clients.client_factory import ClientFactory
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--engine", required=True)
+    parser.add_argument("--dataset", required=True)
+    parser.add_argument("--host", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+
+    experiments = read_engine_configs()
+    datasets = read_dataset_config()
+    experiment = experiments[args.engine]
+    dataset = Dataset(datasets[args.dataset])
+    client = ClientFactory(args.host).build_client(experiment)
+    uploader = client.uploader
+    started = time.perf_counter()
+    try:
+        uploader.init_client(
+            uploader.host,
+            dataset.config.distance,
+            uploader.connection_params,
+            uploader.upload_params,
+        )
+        rebuild = getattr(uploader, "rebuild_index", None)
+        if rebuild is None:
+            raise RuntimeError("selected uploader does not support index-only rebuild")
+        details = rebuild(dataset.config.distance)
+    finally:
+        client.delete_client()
+
+    payload = {
+        "engine": experiment["engine"],
+        "experiment": experiment["name"],
+        "dataset": args.dataset,
+        "elapsed_s": time.perf_counter() - started,
+        "details": details or {},
+    }
+    Path(args.output).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

@@ -102,6 +102,9 @@ class EndToEndTunerTests(unittest.TestCase):
             result = tuner.run()
 
             self.assertTrue(result.complete)
+            self.assertEqual(result.resumed_evaluations, 0)
+            self.assertEqual(result.llm_wall_s, 0)
+            self.assertGreaterEqual(len(result.transfer_candidates), len(result.pareto_candidates))
             self.assertEqual(result.completed_evaluations, 5)
             self.assertEqual(len(runner.requests), 5)
             self.assertEqual(len(callback_requests), 5)
@@ -141,6 +144,8 @@ class EndToEndTunerTests(unittest.TestCase):
                 evaluation_timeout_s=10,
             ).run()
             self.assertTrue(resumed.complete)
+            self.assertEqual(resumed.resumed_evaluations, 5)
+            self.assertEqual(resumed.llm_wall_s, 0)
             self.assertEqual(resumed_runner.requests, [])
             self.assertTrue(resumed_runner.closed)
 

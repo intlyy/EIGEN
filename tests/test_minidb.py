@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from mutune.geo_minidb import build_geo_minidbs
 from mutune.minidb import (
     build_hdf5_minidbs,
     exact_ground_truth,
@@ -16,6 +18,43 @@ from mutune.minidb import (
 
 
 class MiniDBTests(unittest.TestCase):
+    def test_geo_builder_records_cost_and_preserves_short_and_empty_exact_answers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            source.mkdir()
+            np.save(source / "vectors.npy", np.array([[1, 0], [0, 1], [1, 1]], dtype=np.float32))
+            (source / "payloads.jsonl").write_text(
+                "".join(
+                    json.dumps({"location": {"lat": lat, "lon": 0}}) + "\n" for lat in (0, 10, 20)
+                )
+            )
+            rows = [
+                {
+                    "query": [1, 0],
+                    "conditions": {
+                        "and": [{"location": {"geo": {"lat": lat, "lon": 0, "radius": 10}}}]
+                    },
+                }
+                for lat in (0, 80)
+            ]
+            (source / "tests.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+            manifest = build_geo_minidbs(
+                source, root / "views", sample_ratio=1.0, sample_seeds=(1, 2), top_k=3
+            )
+            timing = manifest["construction_timing"]
+            self.assertGreater(timing["wall_s"], 0)
+            self.assertAlmostEqual(timing["wall_s"], sum(timing["stages_wall_s"].values()))
+            self.assertGreater(timing["stages_wall_s"]["ground_truth_and_query_write"], 0)
+            for entry in manifest["minidbs"]:
+                rows = [
+                    json.loads(line)
+                    for line in (root / "views" / entry["path"] / "tests.jsonl")
+                    .read_text()
+                    .splitlines()
+                ]
+                self.assertEqual([len(row["closest_ids"]) for row in rows], [1, 0])
+
     def test_minimum_one_and_exact_size_with_tiny_buckets(self):
         np.testing.assert_array_equal(proportional_allocation(np.array([99, 1, 1]), 10), [8, 1, 1])
         np.testing.assert_array_equal(proportional_allocation(np.array([5, 5]), 3), [2, 1])
@@ -49,6 +88,11 @@ class MiniDBTests(unittest.TestCase):
             manifest = build_hdf5_minidbs(source, root / "views", sample_ratio=0.2, top_k=3)
             self.assertEqual(len(manifest["minidbs"]), 3)
             self.assertEqual(sum(manifest["allocation"]), 10)
+            timing = manifest["construction_timing"]
+            self.assertGreater(timing["wall_s"], 0)
+            self.assertAlmostEqual(timing["wall_s"], sum(timing["stages_wall_s"].values()))
+            for stage in ("bucketization", "sampling", "ground_truth", "data_write", "checksums"):
+                self.assertGreater(timing["stages_wall_s"][stage], 0)
             for entry in manifest["minidbs"]:
                 path = root / "views" / entry["path"]
                 ids = np.load(path.with_suffix(".indices.npy"))

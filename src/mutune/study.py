@@ -17,6 +17,7 @@ from pydantic import Field, model_validator
 from mutune.config import LoadedProject, StrictModel, load_project
 from mutune.execution import evaluate_candidates, stage_project, tune_project
 from mutune.profiles import profile_fingerprint
+from mutune.timing import finalize_study_timings
 from mutune.tuning.history import candidate_key
 from mutune.tuning.pareto import feasible
 from mutune.utils import atomic_write_json, fingerprint
@@ -227,15 +228,22 @@ def _run_study(study: LoadedStudy, *, tune_fn: Any, evaluate_fn: Any) -> dict[st
         for i, p in enumerate(study.minidbs)
     ]
     start = time.monotonic()
+
+    def timed_tune(project):
+        local_result = tune_fn(project)
+        return local_result, time.monotonic()
+
     with ThreadPoolExecutor(max_workers=len(local_projects)) as pool:
-        local_results = list(pool.map(tune_fn, local_projects))
+        completed = list(pool.map(timed_tune, local_projects))
     timings["parallel_tuning_wall_s"] = time.monotonic() - start
+    timings["critical_path_worker"] = max(range(len(completed)), key=lambda i: completed[i][1])
+    local_results = [item[0] for item in completed]
     if any(not result.get("complete") for result in local_results):
         raise ValueError("all independent MiniDB tuning budgets must finish before transfer")
     union = {
         candidate_key(item["candidate"]): item["candidate"]
         for result in local_results
-        for item in result["pareto_candidates"]
+        for item in result["transfer_candidates"]
     }
     candidates = [union[key] for key in sorted(union)]
     atomic_write_json(root / "candidate_pool.json", candidates)
@@ -317,6 +325,8 @@ def run_study(
             },
         )
         raise
-    result["timings"]["total_invocation_wall_s"] = time.monotonic() - started
+    finalize_study_timings(
+        result["timings"], study.manifest, result["local_results"], time.monotonic() - started
+    )
     atomic_write_json(study.artifact_dir / "result.json", result)
     return result

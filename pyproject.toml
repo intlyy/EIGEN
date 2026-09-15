@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mutune"
-version = "0.2.0"
+version = "0.3.0"
 description = "MiniDB transfer and constrained LLM optimization for vector databases"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,7 @@ where = ["src"]
 include = ["mutune*"]
 
 [tool.setuptools.package-data]
+"mutune.resources" = ["milvus-v2.3.1.json", "MILVUS-LICENSE"]
 "mutune.resources.profiles" = ["*.json"]
 "mutune.resources.vectordb_benchmark" = ["*.py.txt"]
 

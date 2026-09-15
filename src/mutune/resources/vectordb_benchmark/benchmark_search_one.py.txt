@@ -1,0 +1,23 @@
+def _search_one(cls, query, top=None):
+    # Installed as the method body, retaining the upstream signature/decorators.
+    if query.expected_result is None:
+        raise ValueError("Recall measurement requires exact ground truth")
+    if top is None:
+        top = len(query.expected_result) or DEFAULT_TOP
+    if isinstance(top, bool) or not isinstance(top, int) or top <= 0:
+        raise ValueError("Recall measurement requires a positive integer top-K")
+    expected = query.expected_result[:top]
+    if not query.meta_conditions and len(expected) < top:
+        raise ValueError("Unfiltered ground truth contains fewer than top-K neighbors")
+    if len(set(expected)) != len(expected):
+        raise ValueError("Ground truth neighbor IDs must be unique")
+    start = time.perf_counter()
+    search_res = cls.search_one(query, top)
+    end = time.perf_counter()
+    ids = {item[0] for item in search_res}
+    if expected:
+        recall = len(ids.intersection(expected)) / len(expected)
+    else:
+        # An empty exact answer is distinct from missing ground truth.
+        recall = 1.0 if not ids else 0.0
+    return recall, end - start

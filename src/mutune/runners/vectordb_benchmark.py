@@ -23,6 +23,7 @@ from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
 from mutune.api import BaseRunner, EvaluationRequest, Observation, RunStatus
+from mutune.benchmark_compat import RECALL_CONTRACT, install_benchmark_compatibility
 from mutune.errors import ConfigurationError, ResultError, RunnerError
 from mutune.utils import atomic_write_json, dataset_sha256, ensure_within, fingerprint, safe_name
 
@@ -83,7 +84,7 @@ class VectorDBBenchmarkRunner(BaseRunner):
     """Run an existing vector-db-benchmark checkout as an external CLI."""
 
     PLUGIN_ID = "vector-db-benchmark"
-    PLUGIN_VERSION = "4"
+    PLUGIN_VERSION = "5"
 
     def __init__(self, context: Any) -> None:
         super().__init__(context)
@@ -145,13 +146,13 @@ class VectorDBBenchmarkRunner(BaseRunner):
             "max_output_bytes",
         )
         self.state_reuse_enabled = bool(context.settings.get("state_reuse", False))
-        if self.state_reuse_enabled and any(
+        if any(
             bool(context.settings.get(name, False))
             for name in ("skip_upload", "skip_configure", "skip_search")
         ):
             raise ConfigurationError(
-                "state_reuse cannot be combined with manual skip_upload, "
-                "skip_configure, or skip_search settings"
+                "Manual skip_upload, skip_configure, and skip_search are unsafe for "
+                "configuration evaluation; use verified state_reuse instead"
             )
         self._state_candidate: dict[str, Any] | None = None
         self._state_identity: tuple[Any, ...] | None = None
@@ -166,6 +167,7 @@ class VectorDBBenchmarkRunner(BaseRunner):
             "state_reuse_enabled": self.state_reuse_enabled,
             "benchmark_source_sha256": self.source_sha256,
             "dataset_sha256": self.dataset_digest,
+            "recall_contract": RECALL_CONTRACT,
         }
 
     def close(self) -> None:
@@ -199,7 +201,8 @@ class VectorDBBenchmarkRunner(BaseRunner):
         evaluation_started = time.monotonic()
         try:
             self._materialize_source(workspace)
-            installed_overlays = _install_engine_overlays(workspace, request.engine_id)
+            installed_overlays = install_benchmark_compatibility(workspace, request.engine_id)
+            installed_overlays += _install_engine_overlays(workspace, request.engine_id)
             self._materialize_dataset(workspace, request.workload.dataset)
             experiment = _prepare_experiment(
                 request,
@@ -371,6 +374,7 @@ class VectorDBBenchmarkRunner(BaseRunner):
                 experiment_name=experiment_name,
                 dataset=request.workload.dataset,
                 expected_engine=request.engine_id,
+                required=state_plan["mode"] == "fresh",
             )
             artifacts.extend(upload_artifacts)
             auxiliary.update(upload_auxiliary)
@@ -937,6 +941,7 @@ def _collect_upload_results(
     experiment_name: str,
     dataset: str,
     expected_engine: str,
+    required: bool = False,
 ) -> tuple[list[str], dict[str, Any]]:
     prefix = f"{experiment_name}-{dataset}-upload-"
     candidates = [
@@ -949,6 +954,8 @@ def _collect_upload_results(
             f"Expected at most one upload result for {experiment_name!r}, found {len(candidates)}"
         )
     if not candidates:
+        if required:
+            raise ResultError("Fresh evaluation requires a matching upload/build result")
         return [], {}
     if candidates[0].is_symlink():
         raise ResultError("Upload result may not be a symlink")
@@ -973,6 +980,8 @@ def _collect_upload_results(
         if params.get(key) != expected_value:
             raise ResultError(f"Upload result {key} does not match the request")
     auxiliary: dict[str, Any] = {}
+    if required and "total_time" not in results:
+        raise ResultError("Fresh upload/build result requires results.total_time")
     for key, target in (("upload_time", "upload_time_s"), ("total_time", "build_total_time_s")):
         if key in results:
             parsed = _finite_float(results[key], f"upload results.{key}")

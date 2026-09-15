@@ -143,7 +143,12 @@ class ParetoAndTransferTests(unittest.TestCase):
             def tune(project):
                 barrier.wait(timeout=5)  # Fails if independent workers become sequential.
                 i = int(project.config.execution.dataset)
-                return {"complete": True, "pareto_candidates": [{"candidate": candidates[i]}]}
+                return {
+                    "complete": True,
+                    "transfer_candidates": [{"candidate": candidates[i]}],
+                    "resumed_evaluations": 0,
+                    "llm_wall_s": 0.0,
+                }
 
             def evaluate(project, pool):
                 calls.append((project.config.execution.dataset, list(pool)))

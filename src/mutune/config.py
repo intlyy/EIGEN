@@ -86,6 +86,8 @@ class TuningConfig(StrictModel):
     region_min_observations: int = Field(default=3, gt=0)
     region_probe_count: int = Field(default=2, gt=0)
     surrogate_batch_size: int = Field(default=24, gt=0)
+    # Keep speed and recall-margin representatives for cross-view transfer.
+    transfer_candidates_per_region: int = Field(default=3, ge=2)
     seed: int = 42
     exploration_weight: float = Field(default=0.20, ge=0.0)
     history_limit: int = Field(default=100, gt=0)

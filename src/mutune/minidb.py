@@ -13,6 +13,7 @@ from typing import Sequence
 
 import numpy as np
 
+from mutune.timing import ConstructionTimer
 from mutune.utils import atomic_write_json, dataset_sha256
 
 
@@ -164,6 +165,7 @@ def build_hdf5_minidbs(
     overwrite: bool = False,
     query_batch_size: int = 256,
 ) -> dict:
+    timer = ConstructionTimer()
     import h5py
 
     source, output_dir = source.resolve(), output_dir.resolve()
@@ -184,14 +186,19 @@ def build_hdf5_minidbs(
     n = target_size(len(train), sample_ratio, size)
     if not 0 < top_k <= n:
         raise ValueError("MiniDB must contain at least top_k vectors")
+    timer.mark("input_and_validation")
     buckets = hash_bucketize(train, n, num_hash_bits=num_hash_bits, bucket_seed=bucket_seed)
+    timer.mark("bucketization")
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "hash_planes.npy", buckets.planes, allow_pickle=False)
     views = []
+    timer.mark("data_write")
     for index, (path, seed) in enumerate(zip(paths, sample_seeds, strict=True)):
         indices = buckets.sample(n, int(seed))
         mini = train[indices]
+        timer.mark("sampling")
         distances, neighbors = exact_ground_truth(mini, queries, metric, top_k, query_batch_size)
+        timer.mark("ground_truth")
         temporary = path.with_suffix(".partial.hdf5")
         with h5py.File(temporary, "w") as f:
             f.attrs.update(
@@ -214,6 +221,7 @@ def build_hdf5_minidbs(
                 f.create_dataset(name, data=data)
         os.replace(temporary, path)
         np.save(path.with_suffix(".indices.npy"), indices, allow_pickle=False)
+        timer.mark("data_write")
         views.append(
             {
                 "id": f"mini-{index:02d}",
@@ -224,6 +232,7 @@ def build_hdf5_minidbs(
                 "indices": path.with_suffix(".indices.npy").name,
             }
         )
+        timer.mark("checksums")
     manifest = {
         "schema_version": 1,
         "method": "shared-hyperplane-stratified",
@@ -243,6 +252,7 @@ def build_hdf5_minidbs(
         "allocation": proportional_allocation(buckets.counts, n).tolist(),
         "minidbs": views,
     }
+    manifest["construction_timing"] = timer.finish()
     atomic_write_json(output_dir / "manifest.json", manifest)
     return manifest
 

@@ -40,6 +40,7 @@ from .proposer import (
 )
 from .selection import AcquisitionScore, ConstraintAwareAcquisition
 from .surrogate import MixedSpaceKnnSurrogate
+from .transfer import transfer_pool
 
 
 class TuningError(MuTuneError):
@@ -67,6 +68,9 @@ class TuningResult:
     best_candidate: dict[str, Any] | None
     best_metrics: dict[str, float] | None
     pareto_candidates: list[dict[str, Any]] = field(default_factory=list)
+    transfer_candidates: list[dict[str, Any]] = field(default_factory=list)
+    resumed_evaluations: int = 0
+    llm_wall_s: float = 0.0
 
     @property
     def complete(self) -> bool:
@@ -82,6 +86,9 @@ class TuningResult:
             "best_candidate": self.best_candidate,
             "best_metrics": self.best_metrics,
             "pareto_candidates": self.pareto_candidates,
+            "transfer_candidates": self.transfer_candidates,
+            "resumed_evaluations": self.resumed_evaluations,
+            "llm_wall_s": self.llm_wall_s,
         }
 
 
@@ -157,6 +164,7 @@ class Tuner:
             else None
         )
         self.proposer = proposer or self._default_proposer(proposal_client)
+        self.logged_clients = [proposal_client] if proposal_client is not None else []
         self.llm_contract = (
             getattr(llm_client, "config", None).model_dump(mode="json")
             if getattr(llm_client, "config", None) is not None
@@ -167,9 +175,13 @@ class Tuner:
                 raise TuningError("CALM requires an LLM client for generation and prediction")
             if tuning.budget < len(self.partitioner.regions):
                 raise TuningError("CALM budget must allow at least one seed per region")
+            surrogate_client = LoggedCompletionClient(
+                llm_client, self.artifact_dir / "llm", "surrogate"
+            )
+            self.logged_clients.append(surrogate_client)
             self.surrogate = LLMSurrogate(
                 self.search_space,
-                LoggedCompletionClient(llm_client, self.artifact_dir / "llm", "surrogate"),
+                surrogate_client,
                 objectives=tuning.objectives,
                 constraints=tuning.all_constraints(),
                 task=self.task,
@@ -202,6 +214,7 @@ class Tuner:
             self.artifact_dir / "history.jsonl",
             resume=tuning.resume,
         )
+        self.resumed_evaluations = self.history.evaluation_count
         self.manifest_path = self.artifact_dir / "run_manifest.json"
         self.checkpoint_path = self.artifact_dir / "checkpoint.json"
         self.round_dir = self.artifact_dir / "rounds"
@@ -779,6 +792,17 @@ class Tuner:
             best_candidate=dict(best.candidate) if best is not None else None,
             best_metrics=dict(best.metrics) if best is not None else None,
             pareto_candidates=self._archive_payload(),
+            transfer_candidates=[
+                {
+                    "candidate": r.candidate,
+                    "metrics": r.metrics,
+                    "sequence": r.sequence,
+                    "region_id": r.region_id,
+                }
+                for r in transfer_pool(self.history.records, self.tuning)
+            ],
+            resumed_evaluations=self.resumed_evaluations,
+            llm_wall_s=sum(client.elapsed_s for client in self.logged_clients),
         )
 
     def _best_feasible(self) -> EvaluationRecord | None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -148,6 +149,7 @@ def stage_project(project: LoadedProject, directory: Path, stage: str) -> Loaded
 
 
 def tune_project(project: LoadedProject) -> dict[str, Any]:
+    started = time.monotonic()
     with ProjectSession(project) as session:
         llm = OpenAICompatibleClient(project.config.llm) if project.config.llm else None
         tuner = Tuner(
@@ -164,8 +166,9 @@ def tune_project(project: LoadedProject) -> dict[str, Any]:
         )
         session.runner_owned_by_tuner = True
         result = tuner.run().to_dict()
-        atomic_write_json(project.artifact_dir / "result.json", result)
-        return result
+    result["invocation_wall_s"] = time.monotonic() - started
+    atomic_write_json(project.artifact_dir / "result.json", result)
+    return result
 
 
 def evaluate_candidates(

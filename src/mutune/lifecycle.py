@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlsplit
@@ -462,8 +463,8 @@ class DockerComposeLifecycle(ServiceLifecycle):
         if kind == "postgresql":
             self._verify_postgresql()
             return
-        if kind == "milvus_user_yaml":
-            self._verify_milvus_user_yaml()
+        if kind == "milvus_yaml":
+            self._verify_milvus_yaml()
             return
         raise AssertionError(f"unsupported configured server provider: {kind}")
 
@@ -571,7 +572,7 @@ class DockerComposeLifecycle(ServiceLifecycle):
             )
         atomic_write_json(self.artifact_dir / "effective-server-config.json", actual)
 
-    def _verify_milvus_user_yaml(self) -> None:
+    def _verify_milvus_yaml(self) -> None:
         assert self._server_state is not None
         service = self._server_state["service"]
         expected = self._server_state["yaml"]
@@ -580,15 +581,24 @@ class DockerComposeLifecycle(ServiceLifecycle):
             "-T",
             service,
             "cat",
-            "/milvus/configs/user.yaml",
+            "/milvus/configs/milvus.yaml",
         )
         if completed.stdout != expected:
             raise RunnerError(
-                "Milvus server parameters were not mounted as /milvus/configs/user.yaml"
+                "Milvus server parameters were not mounted as /milvus/configs/milvus.yaml"
             )
-        (self.artifact_dir / "effective-user.yaml").write_text(
+        (self.artifact_dir / "mounted-milvus.yaml").write_text(
             completed.stdout,
             encoding="utf-8",
+        )
+        atomic_write_json(
+            self.artifact_dir / "milvus-config-verification.json",
+            {
+                "kind": "mounted_configuration",
+                "path": "/milvus/configs/milvus.yaml",
+                "base_version": "2.3.1",
+                "runtime_values_verified": False,
+            },
         )
 
     def _capture_logs(self) -> None:
@@ -686,8 +696,11 @@ def _validated_server_config(
         raise ConfigurationError("lifecycle.settings.server_config must be an object")
     result = dict(value)
     kind = result.get("kind")
-    if kind not in {"postgresql", "milvus_user_yaml"}:
-        raise ConfigurationError("server_config.kind must be postgresql or milvus_user_yaml")
+    # Existing project files remain valid, but use the corrected loading path.
+    if kind == "milvus_user_yaml":
+        kind = result["kind"] = "milvus_yaml"
+    if kind not in {"postgresql", "milvus_yaml"}:
+        raise ConfigurationError("server_config.kind must be postgresql or milvus_yaml")
     allowed = {"kind", "service"}
     if kind == "postgresql":
         allowed.update({"user", "database"})
@@ -733,14 +746,12 @@ def _render_server_configuration(
         return state, {"services": {service: {"command": command}}}, {}
 
     if engine_id != "milvus" or set(server_params) != {"milvus"}:
-        raise ConfigurationError(
-            "milvus_user_yaml server_config requires milvus server_params.milvus"
-        )
+        raise ConfigurationError("milvus_yaml server_config requires milvus server_params.milvus")
     settings = server_params["milvus"]
     if not isinstance(settings, Mapping):
         raise ConfigurationError("server_params.milvus must be an object")
-    rendered_yaml = _milvus_user_yaml(settings)
-    yaml_path = artifact_dir / "milvus-user.yaml"
+    rendered_yaml = _milvus_yaml(settings)
+    yaml_path = artifact_dir / "milvus.yaml"
     state = {"kind": kind, "service": service, "yaml": rendered_yaml}
     override = {
         "services": {
@@ -749,7 +760,7 @@ def _render_server_configuration(
                     {
                         "type": "bind",
                         "source": str(yaml_path),
-                        "target": "/milvus/configs/user.yaml",
+                        "target": "/milvus/configs/milvus.yaml",
                         "read_only": True,
                     }
                 ]
@@ -786,7 +797,7 @@ def _postgresql_command(settings: Mapping[str, Any]) -> tuple[dict[str, Any], li
     return expected, command
 
 
-def _milvus_user_yaml(settings: Mapping[str, Any]) -> str:
+def _milvus_yaml(settings: Mapping[str, Any]) -> str:
     unknown = set(settings) - set(_MILVUS_SETTINGS)
     if unknown:
         raise ConfigurationError(f"unsupported Milvus server parameters: {sorted(unknown)}")
@@ -794,7 +805,13 @@ def _milvus_user_yaml(settings: Mapping[str, Any]) -> str:
         missing = set(_MILVUS_SETTINGS) - set(settings)
         raise ConfigurationError(f"missing Milvus server parameters: {sorted(missing)}")
 
-    nested: dict[str, Any] = {}
+    # JSON is valid YAML. Ship a typed copy of the upstream 2.3.1 defaults,
+    # then replace only tuned keys, preserving the other versioned defaults.
+    nested = json.loads(
+        resources.files("mutune.resources")
+        .joinpath("milvus-v2.3.1.json")
+        .read_text(encoding="utf-8")
+    )["config"]
     for key, path in _MILVUS_SETTINGS.items():
         value = settings[key]
         if key in {"query_coord_auto_handoff", "query_coord_auto_balance"}:
@@ -813,20 +830,7 @@ def _milvus_user_yaml(settings: Mapping[str, Any]) -> str:
             current = current.setdefault(token, {})
         current[path[-1]] = value
 
-    lines = ["# Generated by muTune; candidate-specific Milvus overrides"]
-    _append_yaml_lines(lines, nested, indent=0)
-    return "\n".join(lines) + "\n"
-
-
-def _append_yaml_lines(lines: list[str], value: Mapping[str, Any], *, indent: int) -> None:
-    prefix = " " * indent
-    for key, item in value.items():
-        if isinstance(item, Mapping):
-            lines.append(f"{prefix}{key}:")
-            _append_yaml_lines(lines, item, indent=indent + 2)
-        else:
-            rendered = str(item).lower() if isinstance(item, bool) else str(item)
-            lines.append(f"{prefix}{key}: {rendered}")
+    return json.dumps(nested, indent=2) + "\n"
 
 
 def _compact_process_error(

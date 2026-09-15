@@ -52,7 +52,7 @@ def project_payload(
     }
     if engine != "qdrant":
         lifecycle["settings"]["server_config"] = {
-            "kind": "postgresql" if engine == "pgvector" else "milvus_user_yaml",
+            "kind": "postgresql" if engine == "pgvector" else "milvus_yaml",
             "service": engine,
         }
     return {

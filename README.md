@@ -1,7 +1,7 @@
 # muTune
 
 muTune tunes vector databases with several independently sampled MiniDBs and a
-constrained LLM optimizer, CALM. It merges feasible local Pareto archives,
+constrained LLM optimizer, CALM. It merges feasible local transfer pools,
 measures every candidate on every MiniDB, ranks performance and stability,
 then measures the top candidates on the original database. The final answer
 is the feasible configuration with the highest **measured full-database QPS**.
@@ -106,7 +106,7 @@ experiments; they change the optimization problem and are not paper defaults.
 `study` runs these stages in order:
 
 1. Independently tune every MiniDB in parallel.
-2. Merge and deduplicate feasible local Pareto archives.
+2. Merge and deduplicate feasible local transfer pools (frontiers plus region representatives).
 3. Measure every candidate on every MiniDB; reject candidates failing any view.
 4. Rank normalized mean performance plus stability (λ defaults to 1).
 5. Evaluate the top L candidates on the full database (L defaults to 5).
@@ -125,3 +125,20 @@ The study writes `study_manifest.json`, each worker's `history.jsonl`,
 Local tuning resumes only when the workload, profile, optimizer, runner and
 LLM contracts match. Cross-validation and full-database measurements are rerun
 on each invocation; resumed wall-clock time is not the duration of a fresh run.
+
+Each local `result.json` has a true `pareto_candidates` frontier and a separate
+`transfer_candidates` pool. The latter adds up to
+`tuning.transfer_candidates_per_region` representatives per region (default 3,
+minimum 2), reserving the highest-QPS and highest-recall feasible candidates,
+then filling by QPS. This keeps more robust backups available for cross-view
+validation while retaining QPS as the default optimization objective.
+
+New MiniDB manifests include `construction_timing`, covering input, shared
+bucketization, sampling, exact ground truth, output and checksums. Study timing
+distinguishes invocation wall time from recorded construction cost and resumed
+history. `cold_start_pipeline_wall_s` and its additive breakdown are unavailable
+when construction timing is absent or tuning reused evaluations. LLM time from
+the last-finishing worker is attributed on the parallel critical path; the sum
+across all workers is a separate, non-additive diagnostic. See
+[review fixes and experiment migration](docs/review-fixes.md) for measurement
+definitions and rerun requirements.

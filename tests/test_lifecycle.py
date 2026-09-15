@@ -318,7 +318,7 @@ class LifecycleTests(unittest.TestCase):
                     {"postgresql": {"arbitrary_setting": "unsafe"}},
                 )
 
-    def test_milvus_configuration_generates_only_known_yaml_paths(self) -> None:
+    def test_milvus_configuration_mounts_complete_versioned_config(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             compose = root / "compose.yaml"
@@ -347,18 +347,31 @@ class LifecycleTests(unittest.TestCase):
 
             self.assertTrue(lifecycle.configure("milvus", params))
 
-            yaml = (artifacts / "milvus-user.yaml").read_text()
-            self.assertIn("dataCoord:\n  segment:\n    maxSize: 512", yaml)
-            self.assertIn("sealProportion: 0.23", yaml)
-            self.assertIn("queryCoord:\n  autoHandoff: true", yaml)
-            self.assertIn("common:\n  gracefulTime: 5000", yaml)
-            self.assertIn("dataNode:\n  segment:\n    insertBufSize: 16777216", yaml)
-            self.assertNotIn("queryNode:", yaml)
-            self.assertNotIn("flush:", yaml)
+            yaml = (artifacts / "milvus.yaml").read_text()
+            config = json.loads(yaml)  # JSON is a YAML subset accepted by Milvus.
+            self.assertEqual(config["dataCoord"]["segment"]["maxSize"], 512)
+            self.assertEqual(config["dataCoord"]["segment"]["sealProportion"], 0.23)
+            self.assertIs(config["queryCoord"]["autoHandoff"], True)
+            self.assertEqual(config["common"]["gracefulTime"], 5000)
+            self.assertEqual(config["dataNode"]["segment"]["insertBufSize"], 16777216)
+            for section in ("etcd", "minio", "queryNode", "rootCoord"):
+                self.assertIn(section, config)  # Partial replacement would erase defaults.
             override = json.loads((artifacts / "server-compose.override.json").read_text())
             mount = override["services"]["standalone"]["volumes"][0]
-            self.assertEqual(mount["target"], "/milvus/configs/user.yaml")
+            self.assertEqual(mount["target"], "/milvus/configs/milvus.yaml")
             self.assertTrue(mount["read_only"])
+            with mock.patch.object(
+                lifecycle, "_run", return_value=subprocess.CompletedProcess([], 0, yaml, "")
+            ) as run:
+                lifecycle._verify_milvus_yaml()
+            self.assertEqual(run.call_args.args[-1], "/milvus/configs/milvus.yaml")
+            verification = json.loads((artifacts / "milvus-config-verification.json").read_text())
+            self.assertFalse(verification["runtime_values_verified"])
+            with mock.patch.object(
+                lifecycle, "_run", return_value=subprocess.CompletedProcess([], 0, "wrong", "")
+            ):
+                with self.assertRaisesRegex(RunnerError, "not mounted"):
+                    lifecycle._verify_milvus_yaml()
 
 
 if __name__ == "__main__":

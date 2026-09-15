@@ -8,6 +8,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import faiss
 import numpy as np
 
+from mutune.timing import ConstructionTimer
+
 VECTORS_FILE = "vectors.npy"
 PAYLOADS_FILE = "payloads.jsonl"
 TESTS_FILE = "tests.jsonl"
@@ -312,6 +314,7 @@ def build_geo_minidbs(
     query_batch_size=128,
     overwrite=False,
 ):
+    timer = ConstructionTimer()
     from mutune.minidb import hash_bucketize, proportional_allocation, target_size
     from mutune.utils import atomic_write_json, dataset_sha256
 
@@ -330,23 +333,29 @@ def build_geo_minidbs(
     paths = [output_dir / f"mini-{i:02d}" for i in range(len(sample_seeds))]
     if not overwrite and any(p.exists() for p in [*paths, output_dir / "manifest.json"]):
         raise FileExistsError("output exists; choose a new output directory")
+    timer.mark("input_and_validation")
     buckets = hash_bucketize(vectors, n, num_hash_bits=num_hash_bits, bucket_seed=bucket_seed)
+    timer.mark("bucketization")
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "hash_planes.npy", buckets.planes, allow_pickle=False)
     views = []
+    timer.mark("data_write")
     for path, seed in zip(paths, sample_seeds, strict=True):
         _prepare_output(path, overwrite)
         indices = buckets.sample(n, int(seed))
         mini = vectors[indices]  # Preserve original vector values and dtype.
+        timer.mark("sampling")
         np.save(path / VECTORS_FILE, mini, allow_pickle=False)
         np.save(path / SAMPLED_INDICES_FILE, indices, allow_pickle=False)
         payloads = None
         if payloads_path is not None:
             payloads = _load_sampled_payloads(payloads_path, indices, len(vectors))
             _write_payloads(path / PAYLOADS_FILE, payloads)
+        timer.mark("data_and_payload_io")
         query_count = _recompute_tests(
             tests_path, path / TESTS_FILE, mini, payloads, top_k, query_batch_size, 0
         )
+        timer.mark("ground_truth_and_query_write")
         views.append(
             {
                 "id": path.name,
@@ -357,6 +366,7 @@ def build_geo_minidbs(
                 "sha256": dataset_sha256(path),
             }
         )
+        timer.mark("checksums")
     manifest = {
         "schema_version": 1,
         "method": "shared-hyperplane-stratified",
@@ -378,6 +388,7 @@ def build_geo_minidbs(
         "payload_schema": {key: "geo" for key in _build_geo_columns(payloads or [])},
         "minidbs": views,
     }
+    manifest["construction_timing"] = timer.finish()
     atomic_write_json(output_dir / "manifest.json", manifest)
     return manifest
 

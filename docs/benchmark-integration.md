@@ -9,12 +9,16 @@ run.py
 benchmark/
 dataset_reader/
 engine/clients/{milvus,qdrant,pgvector}/
+engine/base_client/search.py
 datasets/datasets.json
 ```
 
 The CLI must accept the flags assembled in
 `src/mutune/runners/vectordb_benchmark.py:_command`: engine, dataset, host,
-experiment and optional skip flags. One search result must be emitted for the
+experiment and internally managed reuse flags. Manual `skip_upload`,
+`skip_configure` and `skip_search` settings are rejected, including when
+`state_reuse` is false. Use the validated pgvector state-reuse path where
+appropriate. One search result must be emitted for the
 requested experiment/dataset with `params.experiment`, `params.engine`,
 `params.dataset` and finite `results.rps`, `results.mean_precisions`. A fresh
 build must emit an upload result with `results.total_time`. Search and upload
@@ -41,8 +45,22 @@ The Milvus adapter must consume `upload_params.index_type`,
 `upload_params.index_params`, and `search_params[0].config` for all seven
 families. AUTOINDEX must genuinely be supported by the server distribution;
 an unsupported family must produce a failed measurement, not a different
-index under the same label. This checkout was not supplied, so its precise
-compatibility cannot be certified by this repository's static checks.
+index under the same label. A checked AST compatibility edit removes duplicate
+`port` keywords from the public configure/upload/search connection calls in
+each private snapshot, preserving the normalized port and other parameters.
+The reviewed public source is commit
+`e8299454a07d9c429cd1cce9ab610fea68205e44`; actual database compatibility still
+requires a smoke run with the pinned server and SDK.
+
+Every private snapshot also replaces the checked `BaseSearcher._search_one`
+method body while retaining upstream classes, method signatures and decorators.
+Recall is `|returned IDs intersect exact top-K IDs| / |exact top-K IDs|`.
+Filtered queries may have fewer than K eligible vectors. Empty exact filtered
+answers score 1 only if the database returns no IDs, otherwise 0. Missing ground
+truth, duplicate ground-truth IDs and short unfiltered ground truth are errors.
+Upstream `mean_precisions` is interpreted as mean Recall under this explicit
+contract, recorded in the runner manifest. Raw and previously corrected runs
+must not be combined under the same metric definition.
 
 Packaged pgvector overlays provide HNSW, IVFFlat and explicit exact search.
 They require the upstream base classes and `get_db_config`, `Record` and `Query`
@@ -70,8 +88,16 @@ save the benchmark commit, `pip freeze`, image digests and server versions with
 each published experiment. Do not edit a benchmark checkout or dataset during
 a running study.
 
-PostgreSQL GUCs are read back after restart. Milvus's seven settings are rendered
-against the [2.3.1 configuration layout](https://raw.githubusercontent.com/milvus-io/milvus/v2.3.1/configs/milvus.yaml),
-but the lifecycle currently verifies the mounted file rather than every
-component's effective internal value. Confirm those effects in the actual
-experimental environment before making parameter-level performance claims.
+PostgreSQL GUCs are read back after restart. The `milvus_yaml` provider replaces
+seven settings in the complete bundled
+[Milvus 2.3.1 defaults](https://github.com/milvus-io/milvus/blob/v2.3.1/configs/milvus.yaml)
+and mounts the result as `/milvus/configs/milvus.yaml`, the file that version
+loads by default. JSON serialization is used as a valid YAML subset.
+The old `milvus_user_yaml` provider name remains an alias with the corrected
+mount path. `mounted-milvus.yaml` and `milvus-config-verification.json` record
+mount verification explicitly; they do not assert that every component's
+runtime values were read back. Confirm those effects in the actual experimental
+environment before making parameter-level performance claims. The bundled
+defaults target 2.3.1; other server versions require corresponding defaults and
+integration validation. The converted resource retains upstream attribution;
+its Apache 2.0 license is packaged as `mutune/resources/MILVUS-LICENSE`.

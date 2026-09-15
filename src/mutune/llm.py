@@ -61,6 +61,7 @@ class LoggedCompletionClient:
 
     def __init__(self, client: CompletionClient, directory: Path, role: str) -> None:
         self.client, self.directory, self.role = client, directory, role
+        self.elapsed_s = 0.0
 
     def complete(self, prompt: str, *, deadline: float | None = None) -> CompletionResult:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -106,6 +107,7 @@ class LoggedCompletionClient:
             raise
         finally:
             record["elapsed_s"] = time.monotonic() - started
+            self.elapsed_s += record["elapsed_s"]
             with (self.directory / "calls.jsonl").open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 

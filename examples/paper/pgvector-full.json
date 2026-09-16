@@ -62,7 +62,7 @@
   },
   "tuning": {
     "strategy": "calm",
-    "budget": 60,
+    "budget": 20,
     "initial_samples": 14,
     "proposals_per_round": 12,
     "evaluations_per_round": 4,

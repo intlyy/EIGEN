@@ -46,12 +46,14 @@ class LLMSurrogate:
         objectives: Sequence[ObjectiveSpec],
         constraints: Sequence[MetricConstraint],
         task: Mapping[str, Any],
+        guidance_objectives: Sequence[ObjectiveSpec] = (),
         history_limit: int = 100,
         batch_size: int = 24,
         max_attempts: int = 3,
     ) -> None:
         self.search_space, self.client = search_space, client
         self.objectives, self.constraints = list(objectives), list(constraints)
+        self.guidance_objectives = list(guidance_objectives)
         self.task, self.history_limit = dict(task), history_limit
         self.batch_size, self.max_attempts = batch_size, max_attempts
         self.records: list[EvaluationRecord] = []
@@ -75,6 +77,7 @@ class LLMSurrogate:
                 "workload": self.task,
                 "search_space": _search_space_description(self.search_space),
                 "objectives": [o.model_dump() for o in self.objectives],
+                "archive_coordinates": [o.model_dump() for o in self.guidance_objectives],
                 "constraints": [c.model_dump() for c in self.constraints],
                 "history": [
                     {"candidate": r.candidate, "metrics": r.metrics, "status": r.status}

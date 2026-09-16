@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 
+from mutune.benchmark_compat import MILVUS_GEO_CONTRACT
 from mutune.config import LoadedProject, StrictModel, load_project
 from mutune.execution import evaluate_candidates, stage_project, tune_project
 from mutune.profiles import profile_fingerprint
@@ -141,10 +142,20 @@ def validate_study_projects(
         raise ValueError("MiniDB manifest dimension/distance differs from configured workload")
     if manifest.get("top_k", 0) < full.config.execution.top_k:
         raise ValueError("MiniDB ground truth has fewer neighbors than workload top_k")
-    if manifest.get("format") == "geo" and (
-        not full.config.execution.filtered or full.profile.adapter.engine != "qdrant"
-    ):
-        raise ValueError("geo manifest requires the bundled Qdrant filtered workload")
+    if manifest.get("format") == "geo":
+        engine = full.profile.adapter.engine
+        if not full.config.execution.filtered or engine not in {"milvus", "qdrant"}:
+            raise ValueError("geo manifest requires a filtered Milvus or Qdrant workload")
+        if engine == "milvus":
+            for project in all_projects:
+                settings = project.config.runner.settings
+                if settings.get("milvus_geo_filter") != MILVUS_GEO_CONTRACT:
+                    raise ValueError(
+                        "Milvus geo requires the explicit payload-ID prefilter contract"
+                    )
+                schema = settings.get("dataset_entry", {}).get("schema")
+                if schema != manifest.get("payload_schema") or not schema:
+                    raise ValueError("Milvus geo payload schema must match the MiniDB manifest")
     for project in all_projects:
         if project.config.runner.settings.get("state_reuse") and any(
             o.metric == "build_total_time_s" for o in project.config.tuning.objectives

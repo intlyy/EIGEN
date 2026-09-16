@@ -19,7 +19,8 @@
     ],
     "filters": [
       "exact",
-      "range"
+      "range",
+      "geo"
     ],
     "indexes": [
       "flat",
@@ -33,7 +34,8 @@
     "notes": [
       "Paper Table 3: seven dense index families and seven Milvus system knobs.",
       "The adapter normalizes cosine vectors and searches with inner product.",
-      "IVF_PQ requires m to divide the dataset dimension. AUTOINDEX availability must be checked on the deployed Milvus distribution."
+      "IVF_PQ requires m to divide the dataset dimension. AUTOINDEX availability must be checked on the deployed Milvus distribution.",
+      "Geo-radius uses explicit client payload-ID prefilter compatibility; its cost is included in each Milvus search. It is not native Milvus 2.3 geo support."
     ]
   },
   "experiment": {

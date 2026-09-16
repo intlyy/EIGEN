@@ -3,11 +3,12 @@
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 import faiss
 import numpy as np
 
+from mutune.geo import _build_geo_columns, _condition_mask
 from mutune.timing import ConstructionTimer
 
 VECTORS_FILE = "vectors.npy"
@@ -15,7 +16,6 @@ PAYLOADS_FILE = "payloads.jsonl"
 TESTS_FILE = "tests.jsonl"
 SAMPLED_INDICES_FILE = "sampled_indices.npy"
 METADATA_FILE = "mini_dataset_metadata.json"
-EARTH_RADIUS_METERS = 6_371_008.8
 
 
 def _as_float32(data: np.ndarray) -> np.ndarray:
@@ -91,88 +91,6 @@ def _write_payloads(path: Path, payloads: Iterable[dict]) -> None:
         for payload in payloads:
             output.write(json.dumps(payload, separators=(",", ":")))
             output.write("\n")
-
-
-def _build_geo_columns(payloads: List[dict]) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
-    if not payloads:
-        return {}
-
-    geo_fields = {
-        field
-        for payload in payloads
-        for field, value in payload.items()
-        if isinstance(value, dict) and "lat" in value and "lon" in value
-    }
-    columns: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
-
-    for field in geo_fields:
-        try:
-            latitudes = np.radians(
-                np.asarray([payload[field]["lat"] for payload in payloads], dtype=np.float64)
-            )
-            longitudes = np.radians(
-                np.asarray([payload[field]["lon"] for payload in payloads], dtype=np.float64)
-            )
-        except (KeyError, TypeError, ValueError) as error:
-            raise ValueError(f"Invalid geo payload in field {field!r}.") from error
-        columns[field] = latitudes, longitudes
-
-    return columns
-
-
-def _geo_mask(
-    latitudes: np.ndarray,
-    longitudes: np.ndarray,
-    criteria: dict,
-) -> np.ndarray:
-    query_latitude = np.radians(float(criteria["lat"]))
-    query_longitude = np.radians(float(criteria["lon"]))
-    radius = float(criteria["radius"])
-    if not np.isfinite([query_latitude, query_longitude, radius]).all() or radius < 0:
-        raise ValueError("geo center and radius must be finite, with nonnegative radius")
-
-    latitude_delta = latitudes - query_latitude
-    longitude_delta = longitudes - query_longitude
-    haversine_a = (
-        np.sin(latitude_delta / 2.0) ** 2
-        + np.cos(query_latitude) * np.cos(latitudes) * np.sin(longitude_delta / 2.0) ** 2
-    )
-    haversine_a = np.clip(haversine_a, 0.0, 1.0)
-    angular_distance = 2.0 * np.arctan2(np.sqrt(haversine_a), np.sqrt(1.0 - haversine_a))
-    return EARTH_RADIUS_METERS * angular_distance < radius
-
-
-def _condition_mask(
-    conditions: dict,
-    geo_columns: Dict[str, Tuple[np.ndarray, np.ndarray]],
-    vector_count: int,
-) -> np.ndarray:
-    if not conditions:
-        return np.ones(vector_count, dtype=bool)
-
-    if "and" in conditions:
-        entries = conditions["and"]
-        result = np.ones(vector_count, dtype=bool)
-        combine = np.logical_and
-    elif "or" in conditions:
-        entries = conditions["or"]
-        result = np.zeros(vector_count, dtype=bool)
-        combine = np.logical_or
-    else:
-        raise ValueError(f"Unsupported condition group: {conditions}")
-
-    for field_condition in entries:
-        for field, condition in field_condition.items():
-            if "geo" not in condition:
-                raise ValueError(
-                    f"Geo-radius miniDB only supports geo conditions, found: {condition}"
-                )
-            if field not in geo_columns:
-                raise ValueError(f"Geo field {field!r} is missing from sampled payloads.")
-            latitudes, longitudes = geo_columns[field]
-            result = combine(result, _geo_mask(latitudes, longitudes, condition["geo"]))
-
-    return result
 
 
 def _top_cosine_matches(
@@ -334,7 +252,9 @@ def build_geo_minidbs(
     if not overwrite and any(p.exists() for p in [*paths, output_dir / "manifest.json"]):
         raise FileExistsError("output exists; choose a new output directory")
     timer.mark("input_and_validation")
-    buckets = hash_bucketize(vectors, n, num_hash_bits=num_hash_bits, bucket_seed=bucket_seed)
+    buckets = hash_bucketize(
+        vectors, n, num_hash_bits=num_hash_bits, bucket_seed=bucket_seed, metric="cosine"
+    )
     timer.mark("bucketization")
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "hash_planes.npy", buckets.planes, allow_pickle=False)
@@ -370,6 +290,7 @@ def build_geo_minidbs(
     manifest = {
         "schema_version": 1,
         "method": "shared-hyperplane-stratified",
+        "partition": buckets.partition_metadata,
         "format": "geo",
         "source": str(source),
         "source_sha256": dataset_sha256(source),

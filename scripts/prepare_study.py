@@ -8,6 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from mutune.benchmark_compat import MILVUS_GEO_CONTRACT
 from mutune.runners.vectordb_benchmark import benchmark_source_sha256
 from mutune.utils import atomic_write_json
 
@@ -25,6 +26,7 @@ def project_payload(
     seed,
     model,
     top_k=10,
+    budget=20,
 ):
     """Repository defaults; unspecified paper hyperparameters are documented."""
     connection = {"port": port}
@@ -88,8 +90,8 @@ def project_payload(
         "lifecycle": lifecycle,
         "tuning": {
             "strategy": "calm",
-            "budget": 60,
-            "initial_samples": 14,
+            "budget": budget,
+            "initial_samples": min(14, budget),
             "proposals_per_round": 12,
             "evaluations_per_round": 4,
             "regions_per_round": 1,
@@ -117,11 +119,14 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", default="gpt-5.4")
     parser.add_argument("--top-k", type=int, default=10)
+    parser.add_argument("--budget-per-minidb", type=int, default=20)
     args = parser.parse_args()
     manifest_path = args.manifest.resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("format") == "geo" and args.engine != "qdrant":
-        parser.error("use Qdrant for the bundled geo-radius adapter")
+    if args.budget_per_minidb < 1:
+        parser.error("--budget-per-minidb must be positive")
+    if manifest.get("format") == "geo" and args.engine not in {"milvus", "qdrant"}:
+        parser.error("geo-radius requires Milvus or Qdrant")
     if not 0 < args.top_k <= manifest["top_k"]:
         parser.error("--top-k exceeds manifest ground truth or is nonpositive")
     output = args.output.resolve()
@@ -153,11 +158,14 @@ def main():
             seed=42 + i,
             model=args.model,
             top_k=args.top_k,
+            budget=args.budget_per_minidb,
         )
         payload["runner"]["settings"]["expected_source_sha256"] = source_digest
         if manifest.get("format") == "geo":
             payload["execution"]["filtered"] = True
             payload["runner"]["settings"]["dataset_entry"] = {"schema": manifest["payload_schema"]}
+            if args.engine == "milvus":
+                payload["runner"]["settings"]["milvus_geo_filter"] = MILVUS_GEO_CONTRACT
         name = f"{args.engine}-{label}.json"
         atomic_write_json(output / name, payload)
         names.append(name)

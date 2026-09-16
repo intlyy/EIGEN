@@ -30,7 +30,7 @@ from mutune.utils import atomic_write_json, fingerprint, safe_name
 from .calm_selection import CALMScore, ParetoBatchSelector
 from .history import EvaluationRecord, HistoryStore, candidate_key
 from .llm_surrogate import LLMSurrogate
-from .pareto import archive, feasible
+from .pareto import feasible
 from .partitioning import ProfilePartitioner, Region
 from .proposer import (
     CandidateProposer,
@@ -183,6 +183,7 @@ class Tuner:
                 self.search_space,
                 surrogate_client,
                 objectives=tuning.objectives,
+                guidance_objectives=tuning.guidance_objectives(),
                 constraints=tuning.all_constraints(),
                 task=self.task,
                 history_limit=tuning.history_limit,
@@ -202,7 +203,7 @@ class Tuner:
         )
         self.calm_acquisition = ParetoBatchSelector(
             self.search_space,
-            tuning.objectives,
+            tuning.guidance_objectives(),
             tuning.all_constraints(),
             rng=self.rng,
             exploration_probability=tuning.batch_exploration,
@@ -304,6 +305,7 @@ class Tuner:
             history_limit=self.tuning.history_limit,
             task=self.task,
             objectives=self.tuning.objectives,
+            guidance_objectives=self.tuning.guidance_objectives(),
             constraints=self.tuning.all_constraints(),
         )
         return HybridProposer(llm_proposer, self.random_proposer)
@@ -325,8 +327,11 @@ class Tuner:
         # operation; changing its proposal/selection policy is not silent.
         tuning_policy.pop("budget", None)
         tuning_policy.pop("resume", None)
+        tuning_policy.pop("transfer_candidates_per_region", None)
         runner_settings = dict(getattr(self.runner.context, "settings", {}))
         return {
+            "optimizer_contract_version": 2,
+            "guidance_objectives": [o.model_dump() for o in self.tuning.guidance_objectives()],
             "profile_fingerprint": profile_fingerprint(self.profile),
             "experiment_name": self.experiment_name,
             "engine": self.profile.adapter.engine,
@@ -519,7 +524,7 @@ class Tuner:
             constraint_metric=self.tuning.constraint_metric,
             threshold=self.tuning.recall_threshold,
             exploration_weight=self.tuning.exploration_weight,
-            objectives=self.tuning.objectives,
+            objectives=self.tuning.guidance_objectives(),
             constraints=self.tuning.all_constraints(),
             probes=probes,
             min_observations=self.tuning.region_min_observations,
@@ -579,7 +584,7 @@ class Tuner:
                 constraint_metric=self.tuning.constraint_metric,
                 threshold=self.tuning.recall_threshold,
                 exploration_weight=self.tuning.exploration_weight,
-                objectives=self.tuning.objectives,
+                objectives=self.tuning.guidance_objectives(),
                 constraints=self.tuning.all_constraints(),
                 rng=self.rng,
                 exploration_probability=self.tuning.region_exploration,
@@ -792,15 +797,8 @@ class Tuner:
             best_candidate=dict(best.candidate) if best is not None else None,
             best_metrics=dict(best.metrics) if best is not None else None,
             pareto_candidates=self._archive_payload(),
-            transfer_candidates=[
-                {
-                    "candidate": r.candidate,
-                    "metrics": r.metrics,
-                    "sequence": r.sequence,
-                    "region_id": r.region_id,
-                }
-                for r in transfer_pool(self.history.records, self.tuning)
-            ],
+            # Compatibility name for the same complete feasible archive.
+            transfer_candidates=self._archive_payload(),
             resumed_evaluations=self.resumed_evaluations,
             llm_wall_s=sum(client.elapsed_s for client in self.logged_clients),
         )
@@ -820,10 +818,13 @@ class Tuner:
 
     def _archive_payload(self) -> list[dict[str, Any]]:
         return [
-            {"candidate": r.candidate, "metrics": r.metrics, "sequence": r.sequence}
-            for r in archive(
-                self.history.records, self.tuning.objectives, self.tuning.all_constraints()
-            )
+            {
+                "candidate": r.candidate,
+                "metrics": r.metrics,
+                "sequence": r.sequence,
+                "region_id": r.region_id,
+            }
+            for r in transfer_pool(self.history.records, self.tuning)
         ]
 
 

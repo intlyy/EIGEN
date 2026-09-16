@@ -9,6 +9,7 @@ from pathlib import Path
 from mutune.errors import RunnerError
 
 RECALL_CONTRACT = "available-ground-truth-v1; empty-correct-only-if-returned-empty"
+MILVUS_GEO_CONTRACT = "payload-id-prefilter-v1"
 
 
 def _module(path: Path) -> ast.Module:
@@ -81,4 +82,47 @@ def install_benchmark_compatibility(workspace: Path, engine: str) -> list[str]:
                     ast.unparse(ast.fix_missing_locations(tree)) + "\n", encoding="utf-8"
                 )
                 changed.append(relative.as_posix())
+    return changed
+
+
+def install_milvus_geo_compatibility(workspace: Path) -> list[str]:
+    """Wrap reviewed Milvus interfaces without replacing its uploader/index code."""
+    directory = workspace / "engine/clients/milvus"
+    sources = {}
+    contracts = {
+        "configure": ("MilvusConfigurator", "recreate", ["self", "dataset", "collection_params"]),
+        "search": ("MilvusSearcher", "search_one", ["cls", "query", "top"]),
+    }
+    for name, (class_name, method_name, arguments) in contracts.items():
+        path = directory / f"{name}.py"
+        tree = _module(path)
+        methods = [
+            method
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+            for method in node.body
+            if isinstance(method, ast.FunctionDef) and method.name == method_name
+        ]
+        if len(methods) != 1 or [a.arg for a in methods[0].args.args] != arguments:
+            raise RunnerError(
+                f"unsupported Milvus geo adapter interface: {class_name}.{method_name}"
+            )
+        sources[name] = path.read_bytes()
+    helpers = [directory / f"mutune_{name}_base.py" for name in contracts]
+    helpers.append(directory / "mutune_geo.py")
+    if any(path.exists() or path.is_symlink() for path in helpers):
+        raise RunnerError("Milvus geo helper paths already exist in benchmark source")
+    package = resources.files("mutune.resources.vectordb_benchmark")
+    changed = []
+    for name, source in sources.items():
+        base = directory / f"mutune_{name}_base.py"
+        base.write_bytes(source)
+        wrapper = directory / f"{name}.py"
+        wrapper.write_bytes(package.joinpath(f"milvus_geo_{name}.py.txt").read_bytes())
+        changed.extend(
+            [base.relative_to(workspace).as_posix(), wrapper.relative_to(workspace).as_posix()]
+        )
+    helper = directory / "mutune_geo.py"
+    helper.write_bytes(resources.files("mutune").joinpath("geo.py").read_bytes())
+    changed.append(helper.relative_to(workspace).as_posix())
     return changed

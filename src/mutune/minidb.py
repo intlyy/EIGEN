@@ -55,11 +55,34 @@ class HashBuckets:
     requested_bits: int
     effective_bits: int
     bucket_seed: int
+    metric: str
+    offsets: np.ndarray
+    l2_bucket_width: float | None
+
+    @property
+    def family(self) -> str:
+        return "euclidean-p-stable" if self.metric == "l2" else "angular-hyperplane"
+
+    @property
+    def partition_metadata(self) -> dict:
+        return {
+            "family": self.family,
+            "metric": self.metric,
+            "requested_hash_functions": self.requested_bits,
+            "effective_hash_functions": self.effective_bits,
+            "projections_file": "hash_planes.npy",
+            "offsets_file": "hash_offsets.npy" if self.metric == "l2" else None,
+            "l2_bucket_width": self.l2_bucket_width,
+        }
 
     @property
     def fingerprint(self) -> str:
         digest = hashlib.sha256()
+        digest.update(self.family.encode("ascii"))
+        digest.update(self.metric.encode("ascii"))
+        digest.update(np.asarray([self.l2_bucket_width or 0], dtype="<f8").tobytes())
         digest.update(np.asarray(self.planes, dtype="<f8").tobytes())
+        digest.update(np.asarray(self.offsets, dtype="<f8").tobytes())
         digest.update(np.asarray(self.codes, dtype="<u8").tobytes())
         return digest.hexdigest()
 
@@ -80,28 +103,90 @@ def hash_bucketize(
     num_hash_bits: int = 12,
     bucket_seed: int = 42,
     chunk_size: int = 65536,
+    metric: str = "cosine",
+    l2_bucket_width: float = 1.0,
 ) -> HashBuckets:
-    """Use one Gaussian matrix; shorten its prefix until nonempty buckets <= n."""
+    """Select the longest shared LSH prefix with at most ``size`` buckets.
+
+    Cosine/angular uses signs of Gaussian projections. Euclidean L2 uses
+    h(x) = floor((a.x + b) / w), with a ~ N(0, I) and b ~ Uniform[0, w),
+    the p-stable LSH family of Datar et al. (SoCG 2004), p=2:
+    https://doi.org/10.1145/997817.997857. Width w is in the input's units;
+    vectors are never normalized for this partition. Legacy dot workloads
+    retain angular partitioning (not a general inner-product LSH guarantee).
+
+    The seed defines a fixed ordered sequence, independent of the requested
+    prefix length. Each added function only refines existing buckets, so the
+    first excessive prefix ends the search. The empty prefix is one bucket.
+    ``num_hash_bits`` names the prefix length for API compatibility; L2 hash
+    values are signed grid coordinates, not bits.
+    """
     if vectors.ndim != 2 or not len(vectors) or vectors.shape[1] < 1:
         raise ValueError("vectors must be a non-empty N by d array")
     if not 0 < size <= len(vectors) or not 1 <= num_hash_bits <= 63 or chunk_size < 1:
         raise ValueError("require 0 < n <= N, 1 <= hash bits <= 63, positive chunks")
-    planes = np.random.default_rng(bucket_seed).standard_normal((vectors.shape[1], num_hash_bits))
-    codes = np.empty(len(vectors), dtype=np.uint64)
-    powers = np.left_shift(np.uint64(1), np.arange(num_hash_bits - 1, -1, -1, dtype=np.uint64))
-    for start in range(0, len(vectors), chunk_size):
-        block = np.asarray(vectors[start : start + chunk_size])
-        if not np.isfinite(block).all():
-            raise ValueError("vectors contain NaN or infinity")
-        codes[start : start + len(block)] = (block @ planes >= 0).astype(np.uint64) @ powers
-    bits = num_hash_bits
-    while len(np.unique(codes)) > size:
-        codes >>= np.uint64(1)
-        bits -= 1
+    metric = {"angular": "cosine", "euclidean": "l2"}.get(metric, metric)
+    if metric not in {"cosine", "l2", "dot"}:
+        raise ValueError("metric must be l2/euclidean, cosine/angular, or dot")
+    if not math.isfinite(l2_bucket_width) or l2_bucket_width <= 0:
+        raise ValueError("l2_bucket_width must be finite and positive")
+    projection_seed, offset_seed = np.random.SeedSequence(bucket_seed).spawn(2)
+    planes = (
+        np.random.default_rng(projection_seed).standard_normal((num_hash_bits, vectors.shape[1])).T
+    )
+    offsets = np.empty(0, dtype=np.float64)
+    if metric == "l2":
+        offsets = np.random.default_rng(offset_seed).uniform(0, l2_bucket_width, num_hash_bits)
+        codes = np.zeros(len(vectors), dtype=np.uint64)
+        # Losslessly compress (previous-prefix ID, next grid coordinate).
+        # This avoids fixed-width bit packing, collisions and N-by-prefix storage.
+        pairs = np.empty(len(vectors), dtype=[("prefix", "<u8"), ("cell", "<i8")])
+        bits = 0
+        for column in range(num_hash_bits):
+            pairs["prefix"] = codes
+            for start in range(0, len(vectors), chunk_size):
+                block = np.asarray(vectors[start : start + chunk_size])
+                if not np.isfinite(block).all():
+                    raise ValueError("vectors contain NaN or infinity")
+                cells = np.floor((block @ planes[:, column] + offsets[column]) / l2_bucket_width)
+                if (
+                    not np.isfinite(cells).all()
+                    or np.any(cells < -(2**63))
+                    or np.any(cells >= 2**63)
+                ):
+                    raise ValueError("L2 grid coordinates exceed int64; increase l2_bucket_width")
+                pairs["cell"][start : start + len(block)] = cells.astype(np.int64)
+            unique, inverse = np.unique(pairs, return_inverse=True)
+            if len(unique) > size:
+                break
+            codes = inverse.astype(np.uint64)
+            bits += 1
+    else:
+        codes = np.empty(len(vectors), dtype=np.uint64)
+        powers = np.left_shift(np.uint64(1), np.arange(num_hash_bits - 1, -1, -1, dtype=np.uint64))
+        for start in range(0, len(vectors), chunk_size):
+            block = np.asarray(vectors[start : start + chunk_size])
+            if not np.isfinite(block).all():
+                raise ValueError("vectors contain NaN or infinity")
+            codes[start : start + len(block)] = (block @ planes >= 0).astype(np.uint64) @ powers
+        bits = num_hash_bits
+        while len(np.unique(codes)) > size:
+            codes >>= np.uint64(1)
+            bits -= 1
     order = np.argsort(codes, kind="stable")
     _, starts, counts = np.unique(codes[order], return_index=True, return_counts=True)
     return HashBuckets(
-        planes[:, :bits], codes, order, starts, counts, num_hash_bits, bits, bucket_seed
+        planes[:, :bits],
+        codes,
+        order,
+        starts,
+        counts,
+        num_hash_bits,
+        bits,
+        bucket_seed,
+        metric,
+        offsets[:bits],
+        l2_bucket_width if metric == "l2" else None,
     )
 
 
@@ -160,6 +245,7 @@ def build_hdf5_minidbs(
     sample_seeds: Sequence[int] = (7630, 7631, 7632),
     bucket_seed: int = 42,
     num_hash_bits: int = 12,
+    l2_bucket_width: float = 1.0,
     top_k: int = 100,
     metric: str = "l2",
     overwrite: bool = False,
@@ -172,7 +258,11 @@ def build_hdf5_minidbs(
     if not sample_seeds or len(set(sample_seeds)) != len(sample_seeds):
         raise ValueError("provide distinct sampling seeds for the MiniDB views")
     paths = [output_dir / f"mini-{i:02d}.hdf5" for i in range(len(sample_seeds))]
-    reserved = paths + [output_dir / "manifest.json", output_dir / "hash_planes.npy"]
+    reserved = paths + [
+        output_dir / "manifest.json",
+        output_dir / "hash_planes.npy",
+        output_dir / "hash_offsets.npy",
+    ]
     reserved += [p.with_suffix(".indices.npy") for p in paths]
     if source in reserved:
         raise ValueError("output must not overwrite the source dataset")
@@ -187,10 +277,19 @@ def build_hdf5_minidbs(
     if not 0 < top_k <= n:
         raise ValueError("MiniDB must contain at least top_k vectors")
     timer.mark("input_and_validation")
-    buckets = hash_bucketize(train, n, num_hash_bits=num_hash_bits, bucket_seed=bucket_seed)
+    buckets = hash_bucketize(
+        train,
+        n,
+        num_hash_bits=num_hash_bits,
+        bucket_seed=bucket_seed,
+        metric=metric,
+        l2_bucket_width=l2_bucket_width,
+    )
     timer.mark("bucketization")
     output_dir.mkdir(parents=True, exist_ok=True)
     np.save(output_dir / "hash_planes.npy", buckets.planes, allow_pickle=False)
+    if metric == "l2":
+        np.save(output_dir / "hash_offsets.npy", buckets.offsets, allow_pickle=False)
     views = []
     timer.mark("data_write")
     for index, (path, seed) in enumerate(zip(paths, sample_seeds, strict=True)):
@@ -235,7 +334,10 @@ def build_hdf5_minidbs(
         timer.mark("checksums")
     manifest = {
         "schema_version": 1,
-        "method": "shared-hyperplane-stratified",
+        "method": "shared-p-stable-stratified"
+        if metric == "l2"
+        else "shared-hyperplane-stratified",
+        "partition": buckets.partition_metadata,
         "source": str(source),
         "source_sha256": dataset_sha256(source),
         "source_size": len(train),
@@ -267,6 +369,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--bucket-seed", type=int, default=42)
     parser.add_argument("--sample-seed", type=int, default=7630)
     parser.add_argument("--num-hash-bits", type=int, default=12)
+    parser.add_argument(
+        "--l2-bucket-width",
+        type=float,
+        default=1.0,
+        help="Euclidean p-stable grid width in original vector units (default: 1.0)",
+    )
     parser.add_argument("--top-k", type=int, default=100)
     parser.add_argument(
         "--metric", choices=["l2", "euclidean", "cosine", "angular", "dot"], default="l2"
@@ -284,6 +392,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sample_seeds=range(args.sample_seed, args.sample_seed + args.num_minidbs),
         bucket_seed=args.bucket_seed,
         num_hash_bits=args.num_hash_bits,
+        l2_bucket_width=args.l2_bucket_width,
         top_k=args.top_k,
         metric=args.metric,
         overwrite=args.overwrite,

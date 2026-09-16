@@ -153,6 +153,7 @@ class OpenAICompatibleProposer:
         history_limit: int = 50,
         task: Mapping[str, Any] | None = None,
         objectives: Sequence[Any] = (),
+        guidance_objectives: Sequence[Any] = (),
         constraints: Sequence[Any] = (),
         monotonic=time.monotonic,
     ) -> None:
@@ -170,6 +171,7 @@ class OpenAICompatibleProposer:
         self.history_limit = history_limit
         self.task = dict(task or {})
         self.objectives = list(objectives)
+        self.guidance_objectives = list(guidance_objectives)
         self.constraints = list(constraints)
         self._monotonic = monotonic
 
@@ -193,6 +195,7 @@ class OpenAICompatibleProposer:
                 key: value for key, value in self.runtime.items() if key != "connection_params"
             },
             "efficiency_objectives": _jsonable(self.objectives),
+            "archive_coordinates": _jsonable(self.guidance_objectives),
             "all_constraints": _jsonable(self.constraints),
             "number_of_candidates": count,
             "objective": {"metric": self.objective_metric, "direction": "maximize"},

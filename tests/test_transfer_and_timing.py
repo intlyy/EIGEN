@@ -1,4 +1,4 @@
-"""Regressions for viable transfer backups and non-overlapping cost accounting."""
+"""Regressions for complete frontier transfer and non-overlapping cost accounting."""
 
 from __future__ import annotations
 
@@ -35,8 +35,13 @@ class TransferTests(unittest.TestCase):
             [record("A", 100, 0.95), record("B", 99, 0.99)],
             [record("C", 100, 0.95), record("B", 99, 0.99)],
         ]
-        fronts = [archive(rows, config.objectives, config.all_constraints()) for rows in records]
-        self.assertEqual([r.candidate["name"] for rows in fronts for r in rows], ["A", "C"])
+        fronts = [
+            archive(rows, config.guidance_objectives(), config.all_constraints())
+            for rows in records
+        ]
+        self.assertEqual(
+            [r.candidate["name"] for rows in fronts for r in rows], ["A", "B", "C", "B"]
+        )
         union = {
             candidate_key(r.candidate): r.candidate
             for rows in records
@@ -65,24 +70,27 @@ class TransferTests(unittest.TestCase):
         ranking = rank_cross_validation(candidates, matrix, constraints=config.all_constraints())
         self.assertEqual([r["candidate"]["name"] for r in ranking], ["B"])
 
-    def test_pool_keeps_region_diversity_recall_margin_and_enforces_budget(self):
+    def test_pool_keeps_entire_frontier_despite_legacy_region_cap(self):
         config = TuningConfig(transfer_candidates_per_region=2)
         rows = [
             record("A", 100, 0.95),
             record("B", 99, 0.96),
-            record("C", 1, 1),
+            record("C", 98, 0.98),
             record("D", 999, 0.89),
-            record("E", 5, 0.95, "ivf"),
-            record("F", 4, 1, "ivf"),
+            record("E", 97, 1),
+            record("F", 4, 0.99, "ivf"),  # Dominated points do not get region reservations.
         ]
         selected = transfer_pool(rows, config)
-        self.assertEqual({r.candidate["name"] for r in selected}, {"A", "C", "E", "F"})
+        self.assertEqual({r.candidate["name"] for r in selected}, {"A", "B", "C", "E"})
+        self.assertEqual(
+            selected, archive(rows, config.guidance_objectives(), config.all_constraints())
+        )
         self.assertEqual([o.metric for o in config.objectives], ["qps"])
 
 
 class TimingTests(unittest.TestCase):
     def test_construction_includes_sequential_stages_without_overlap(self):
-        with patch("mutune.timing.time.monotonic", side_effect=[10, 12, 17, 20]):
+        with patch("mutune.timing.time.perf_counter", side_effect=[10, 12, 17, 20]):
             timer = ConstructionTimer()
             timer.mark("input")
             timer.mark("ground_truth")

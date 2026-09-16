@@ -23,7 +23,12 @@ from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit, urlunsplit
 
 from mutune.api import BaseRunner, EvaluationRequest, Observation, RunStatus
-from mutune.benchmark_compat import RECALL_CONTRACT, install_benchmark_compatibility
+from mutune.benchmark_compat import (
+    MILVUS_GEO_CONTRACT,
+    RECALL_CONTRACT,
+    install_benchmark_compatibility,
+    install_milvus_geo_compatibility,
+)
 from mutune.errors import ConfigurationError, ResultError, RunnerError
 from mutune.utils import atomic_write_json, dataset_sha256, ensure_within, fingerprint, safe_name
 
@@ -84,7 +89,7 @@ class VectorDBBenchmarkRunner(BaseRunner):
     """Run an existing vector-db-benchmark checkout as an external CLI."""
 
     PLUGIN_ID = "vector-db-benchmark"
-    PLUGIN_VERSION = "5"
+    PLUGIN_VERSION = "6"
 
     def __init__(self, context: Any) -> None:
         super().__init__(context)
@@ -99,6 +104,27 @@ class VectorDBBenchmarkRunner(BaseRunner):
             raise ConfigurationError("benchmark source digest differs from expected_source_sha256")
         self.dataset_digest = None
         dataset_path = context.settings.get("dataset_path")
+        self.milvus_geo_filter = context.settings.get("milvus_geo_filter")
+        self.max_geo_filter_bytes = context.settings.get("max_geo_filter_bytes", 8 * 1024 * 1024)
+        if self.milvus_geo_filter is not None:
+            if self.milvus_geo_filter != MILVUS_GEO_CONTRACT:
+                raise ConfigurationError("unsupported milvus_geo_filter contract")
+            if context.profile.adapter.engine != "milvus" or not context.execution.get("filtered"):
+                raise ConfigurationError("milvus_geo_filter requires a filtered Milvus workload")
+            if type(self.max_geo_filter_bytes) is not int or self.max_geo_filter_bytes < 1:
+                raise ConfigurationError("max_geo_filter_bytes must be a positive integer")
+            schema = context.settings.get("dataset_entry", {}).get("schema")
+            if not isinstance(schema, dict) or not schema or set(schema.values()) != {"geo"}:
+                raise ConfigurationError(
+                    "Milvus geo compatibility requires an exclusively geo schema"
+                )
+            if not dataset_path or not all(
+                (Path(dataset_path) / name).is_file()
+                for name in ("vectors.npy", "payloads.jsonl", "tests.jsonl")
+            ):
+                raise ConfigurationError(
+                    "Milvus geo requires local vectors, payloads and tests files"
+                )
         if dataset_path is not None:
             self.dataset_digest = dataset_sha256(Path(dataset_path))
             expected_data = context.settings.get("expected_dataset_sha256")
@@ -168,6 +194,8 @@ class VectorDBBenchmarkRunner(BaseRunner):
             "benchmark_source_sha256": self.source_sha256,
             "dataset_sha256": self.dataset_digest,
             "recall_contract": RECALL_CONTRACT,
+            "milvus_geo_filter": self.milvus_geo_filter,
+            "max_geo_filter_bytes": self.max_geo_filter_bytes if self.milvus_geo_filter else None,
         }
 
     def close(self) -> None:
@@ -203,11 +231,21 @@ class VectorDBBenchmarkRunner(BaseRunner):
             self._materialize_source(workspace)
             installed_overlays = install_benchmark_compatibility(workspace, request.engine_id)
             installed_overlays += _install_engine_overlays(workspace, request.engine_id)
+            if self.milvus_geo_filter:
+                if request.engine_id != "milvus" or not request.workload.filtered:
+                    raise ConfigurationError("Milvus geo adapter received a different workload")
+                installed_overlays += install_milvus_geo_compatibility(workspace)
             self._materialize_dataset(workspace, request.workload.dataset)
             experiment = _prepare_experiment(
                 request,
                 unique_suffix=fingerprint(workspace.name, length=8),
             )
+            if self.milvus_geo_filter:
+                experiment["search_params"][0]["mutune_geo"] = {
+                    "dataset_path": str(workspace / "datasets/local-data"),
+                    "schema": self.context.settings["dataset_entry"]["schema"],
+                    "max_filter_bytes": self.max_geo_filter_bytes,
+                }
             experiment_name = experiment["name"]
             raw_dir = raw_root / experiment_name
             raw_dir.mkdir(parents=True, exist_ok=False)

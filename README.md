@@ -1,7 +1,7 @@
 # muTune
 
-muTune tunes vector databases with several independently sampled MiniDBs and a
-constrained LLM optimizer, CALM. It merges feasible local transfer pools,
+muTune tunes vector databases with several independently sampled Mini-DBs and a
+constrained LLM optimizer, CALM. It merges complete feasible QPS-recall frontiers,
 measures every candidate on every MiniDB, ranks performance and stability,
 then measures the top candidates on the original database. The final answer
 is the feasible configuration with the highest **measured full-database QPS**.
@@ -29,31 +29,16 @@ For an explicitly synthetic workflow demonstration, use
 be reported as experimental results. `--dry-run` on `tune` also bypasses LLM
 calls and service startup. Use a separate artifact directory for demonstrations.
 
-## Prepare MiniDBs
+## Prepare Mini-DBs
 
 The HDF5 input must contain dense floating-point `train` and `test` matrices.
 Supply your own data; no datasets are redistributed here.
 
 ```bash
-mutune-build-minidbs --input data/source.hdf5 --output-dir data/minidbs --num-minidbs 3 --sample-ratio 0.1 --bucket-seed 42 --sample-seed 7630 --metric l2 --top-k 100
+mutune-build-minidbs --input data/source.hdf5 --output-dir data/minidbs --num-minidbs 3 --sample-ratio 0.1 --bucket-seed 42 --sample-seed 7630 --metric l2 --l2-bucket-width 1.0 --top-k 100
 ```
 
-This creates three views, exact local top-K ground truth, source row indices,
-the shared hyperplanes, and `manifest.json` with seeds and content checksums.
-Use `--metric cosine` or `--metric dot` when appropriate. The original vectors
-and query set are preserved. Each nonempty bucket contributes at least one
-point, and each view contains exactly `floor(N * sample_ratio)` points.
 
-For cosine Geo-radius data containing `vectors.npy`, `payloads.jsonl`, and
-`tests.jsonl`, use `mutune-build-geo-minidbs` with the same input/output, size,
-seed and top-K flags (there is no `--metric` flag). It supports the paper's
-geo-radius filter workload on Qdrant. Filtered ground truth is recomputed
-within each sampled dataset.
-
-The root `build_minidb.py` and `build_geo_radius_minidb.py` are compatibility
-entry points after installation. `build_tiny1m.py` is an optional fvecs
-conversion utility that makes a contiguous subset; it is **not** the MiniDB
-sampling algorithm. Its input paths are now explicit.
 
 ## Configure an experiment
 
@@ -99,14 +84,16 @@ experimental environment; both are configurable. No API credentials belong in
 project JSON. LLM usage is recorded separately for proposals and predictions.
 Dollar costs are only calculated when both token rates are explicitly supplied.
 
-Section 5.2 discusses a general multiobjective formulation. Additional objectives
-remain available through explicit `tuning.objectives` settings for extension
-experiments; they change the optimization problem and are not paper defaults.
+Paper Section 5.1 uses QPS and recall as archive/hypervolume coordinates after
+applying the recall constraint. These guidance coordinates are separate from
+the final QPS objective. Additional efficiency objectives remain available through
+explicit `tuning.objectives` for extension experiments; recall is appended to
+their guidance space and remains a hard constraint.
 
 `study` runs these stages in order:
 
 1. Independently tune every MiniDB in parallel.
-2. Merge and deduplicate feasible local transfer pools (frontiers plus region representatives).
+2. Merge and deduplicate the complete feasible local QPS-recall frontiers.
 3. Measure every candidate on every MiniDB; reject candidates failing any view.
 4. Rank normalized mean performance plus stability (λ defaults to 1).
 5. Evaluate the top L candidates on the full database (L defaults to 5).
@@ -126,19 +113,8 @@ Local tuning resumes only when the workload, profile, optimizer, runner and
 LLM contracts match. Cross-validation and full-database measurements are rerun
 on each invocation; resumed wall-clock time is not the duration of a fresh run.
 
-Each local `result.json` has a true `pareto_candidates` frontier and a separate
-`transfer_candidates` pool. The latter adds up to
-`tuning.transfer_candidates_per_region` representatives per region (default 3,
-minimum 2), reserving the highest-QPS and highest-recall feasible candidates,
-then filling by QPS. This keeps more robust backups available for cross-view
-validation while retaining QPS as the default optimization objective.
-
-New MiniDB manifests include `construction_timing`, covering input, shared
-bucketization, sampling, exact ground truth, output and checksums. Study timing
-distinguishes invocation wall time from recorded construction cost and resumed
-history. `cold_start_pipeline_wall_s` and its additive breakdown are unavailable
-when construction timing is absent or tuning reused evaluations. LLM time from
-the last-finishing worker is attributed on the parallel critical path; the sum
-across all workers is a separate, non-additive diagnostic. See
-[review fixes and experiment migration](docs/review-fixes.md) for measurement
-definitions and rerun requirements.
+Each local `result.json` has the full feasible QPS-recall `pareto_candidates`
+frontier. `transfer_candidates` is a compatibility output containing that same
+frontier, with no per-region cap. The old `transfer_candidates_per_region`
+setting is accepted but deprecated and ignored. Region and batch hypervolume
+use those same guidance coordinates; final selection still maximizes feasible QPS.

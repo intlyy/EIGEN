@@ -52,6 +52,15 @@ The reviewed public source is commit
 `e8299454a07d9c429cd1cce9ab610fea68205e44`; actual database compatibility still
 requires a smoke run with the pinned server and SDK.
 
+For Geo-radius on Milvus, set the explicit
+`runner.settings.milvus_geo_filter="payload-id-prefilter-v1"` contract. The
+generated geo study sets it on all MiniDBs and the full database. Packaged
+wrappers retain the upstream uploader and selected ANN index, compute exact
+payload eligibility inside the timed query, and send one ID-filtered Milvus
+search. This is a client-side compatibility path, not native Milvus 2.3 geo
+support. See [paper alignment](paper-alignment.md) for supported data, the filter
+byte limit and the precise measurement boundary.
+
 Every private snapshot also replaces the checked `BaseSearcher._search_one`
 method body while retaining upstream classes, method signatures and decorators.
 Recall is `|returned IDs intersect exact top-K IDs| / |exact top-K IDs|`.
@@ -75,8 +84,7 @@ and post-upload work; the timing boundary follows the upstream
 It excludes dataset hashing/staging, service lifecycle and LLM calls. End-to-end
 stage wall times are separate. These times are diagnostic/cost records, not
 objectives in the default recall-constrained QPS optimization. In particular,
-upload-plus-build time is not the pure index construction time used as an
-example in paper Section 5.2. Memory usage is not inferred from file size or
+upload-plus-build time is not pure index construction time. Memory usage is not inferred from file size or
 LLM output; an explicit extension with a memory objective requires a runner
 that actually measures it.
 

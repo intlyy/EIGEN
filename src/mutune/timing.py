@@ -10,11 +10,11 @@ class ConstructionTimer:
     """Disjoint, sequential stages, including reads, writes and checksums."""
 
     def __init__(self):
-        self.started = self.previous = time.monotonic()
+        self.started = self.previous = time.perf_counter()
         self.stages = {}
 
     def mark(self, name):
-        now = time.monotonic()
+        now = time.perf_counter()
         self.stages[name] = self.stages.get(name, 0.0) + now - self.previous
         self.previous = now
 

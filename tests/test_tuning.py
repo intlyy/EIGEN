@@ -20,7 +20,7 @@ from mutune.tuning import (
     Tuner,
     TuningError,
 )
-from mutune.utils import canonical_json
+from mutune.utils import canonical_json, fingerprint
 
 
 class FakeRunner(BaseRunner):
@@ -104,12 +104,16 @@ class EndToEndTunerTests(unittest.TestCase):
             self.assertTrue(result.complete)
             self.assertEqual(result.resumed_evaluations, 0)
             self.assertEqual(result.llm_wall_s, 0)
-            self.assertGreaterEqual(len(result.transfer_candidates), len(result.pareto_candidates))
+            self.assertEqual(result.transfer_candidates, result.pareto_candidates)
             self.assertEqual(result.completed_evaluations, 5)
             self.assertEqual(len(runner.requests), 5)
             self.assertEqual(len(callback_requests), 5)
             self.assertTrue(runner.closed)
             self.assertIsNotNone(result.best_candidate)
+            self.assertEqual(
+                result.best_metrics["qps"],
+                max(item["metrics"]["qps"] for item in result.pareto_candidates),
+            )
             self.assertEqual(
                 len({canonical_json(dict(request.candidate)) for request in runner.requests}),
                 5,
@@ -169,6 +173,28 @@ class EndToEndTunerTests(unittest.TestCase):
             with self.assertRaisesRegex(TuningError, "incompatible"):
                 changed.run()
             self.assertTrue(changed_runner.closed)
+
+            # A v1 QPS-only archive is not a valid continuation of the new policy.
+            manifest_path = artifact_dir / "run_manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["resume_contract"]["optimizer_contract_version"], 2)
+            manifest["resume_contract"].pop("optimizer_contract_version")
+            manifest["resume_contract"].pop("guidance_objectives")
+            manifest["resume_contract_hash"] = fingerprint(manifest["resume_contract"], length=64)
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            legacy_runner = make_runner(profile, artifact_dir)
+            legacy = Tuner(
+                profile=profile,
+                tuning=tuning,
+                execution=execution,
+                runner=legacy_runner,
+                artifact_dir=artifact_dir,
+                experiment_name="e2e-test",
+                evaluation_timeout_s=10,
+            )
+            with self.assertRaisesRegex(TuningError, "incompatible"):
+                legacy.run()
+            self.assertEqual(legacy_runner.requests, [])
 
     def test_control_plane_failure_aborts_without_consuming_budget(self) -> None:
         profile = load_profile("qdrant-hnsw-dense")

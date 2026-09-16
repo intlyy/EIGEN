@@ -66,7 +66,7 @@ class MetricConstraint(StrictModel):
 class TuningConfig(StrictModel):
     """CALM defaults; alternative optimizers are explicitly named ablations."""
 
-    budget: int = Field(default=60, gt=0)
+    budget: int = Field(default=20, gt=0)
     initial_samples: int = Field(default=14, gt=0)
     proposals_per_round: int = Field(default=12, gt=0)
     evaluations_per_round: int = Field(default=4, gt=0)
@@ -76,7 +76,7 @@ class TuningConfig(StrictModel):
     constraint_metric: str = "recall"
     strategy: Literal["calm", "random", "knn", "llm", "hybrid"] = "calm"
     # Paper Eq. (1): maximize QPS subject to recall, with no build-time objective.
-    # Section 5.2's general multiobjective formulation remains an explicit opt-in.
+    # Additional efficiency objectives are extensions; guidance adds recall separately.
     objectives: list[ObjectiveSpec] = Field(default_factory=lambda: [ObjectiveSpec()])
     constraints: list[MetricConstraint] = Field(default_factory=list)
     region_exploration: float = Field(default=0.1, gt=0, le=1)
@@ -86,8 +86,8 @@ class TuningConfig(StrictModel):
     region_min_observations: int = Field(default=3, gt=0)
     region_probe_count: int = Field(default=2, gt=0)
     surrogate_batch_size: int = Field(default=24, gt=0)
-    # Keep speed and recall-margin representatives for cross-view transfer.
-    transfer_candidates_per_region: int = Field(default=3, ge=2)
+    # Accepted for old config files only; the complete frontier is always transferred.
+    transfer_candidates_per_region: int | None = Field(default=None, ge=2, deprecated=True)
     seed: int = 42
     exploration_weight: float = Field(default=0.20, ge=0.0)
     history_limit: int = Field(default=100, gt=0)
@@ -119,6 +119,15 @@ class TuningConfig(StrictModel):
             MetricConstraint(metric=self.constraint_metric, threshold=self.recall_threshold),
             *self.constraints,
         ]
+
+    def guidance_objectives(self) -> list[ObjectiveSpec]:
+        """Coordinates for CALM's archive and hypervolume, not final ranking.
+
+        The paper retains feasible QPS/recall trade-offs while its final answer
+        maximizes QPS subject to recall. Explicit efficiency objectives extend
+        this guidance space; recall still remains a hard feasibility constraint.
+        """
+        return [*self.objectives, ObjectiveSpec(metric=self.constraint_metric)]
 
 
 class LLMConfig(StrictModel):

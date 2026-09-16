@@ -267,7 +267,10 @@ class ProfilePartitioner:
     ) -> list[RegionScore]:
         """Pareto contribution for mature regions; predicted potential for new ones."""
 
-        objectives = list(objectives or [ObjectiveSpec(metric=objective_metric)])
+        objectives = list(
+            objectives
+            or [ObjectiveSpec(metric=objective_metric), ObjectiveSpec(metric=constraint_metric)]
+        )
         constraints = list(
             constraints or [MetricConstraint(metric=constraint_metric, threshold=threshold)]
         )

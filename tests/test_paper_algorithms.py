@@ -22,10 +22,12 @@ from mutune.llm import CompletionResult, LLMError
 from mutune.profiles import load_profile
 from mutune.search_space import SearchSpace
 from mutune.study import LoadedStudy, StudyConfig, rank_cross_validation, run_study
+from mutune.tuning.calm_selection import ParetoBatchSelector
 from mutune.tuning.history import EvaluationRecord, candidate_key
-from mutune.tuning.llm_surrogate import LLMSurrogate
+from mutune.tuning.llm_surrogate import LLMPrediction, LLMSurrogate
 from mutune.tuning.pareto import archive, hypervolume
 from mutune.tuning.partitioning import ProfilePartitioner
+from mutune.tuning.surrogate import MetricPrediction
 from mutune.tuning.tuner import Tuner
 
 
@@ -45,7 +47,7 @@ def measured(candidate, qps, recall=0.95):
 
 
 class ParetoAndTransferTests(unittest.TestCase):
-    def test_default_archive_maximizes_feasible_qps_without_build_time_tradeoff(self):
+    def test_default_efficiency_objective_remains_feasible_qps(self):
         config = TuningConfig()
         records = [
             record(0, 100, 1),
@@ -57,6 +59,38 @@ class ParetoAndTransferTests(unittest.TestCase):
         del records[4].metrics["build_total_time_s"]  # This diagnostic is optional.
         front = archive(records, config.objectives, config.all_constraints())
         self.assertEqual([r.sequence for r in front], [1, 3, 4])
+
+    def test_guidance_archive_preserves_all_feasible_qps_recall_tradeoffs(self):
+        config = TuningConfig()
+        records = [
+            record(0, 100, 1, 0.91),
+            record(1, 99, 1000, 0.94),
+            record(2, 98, 2000, 0.97),
+            record(3, 97, 3000, 1.0),
+            record(4, 999, 0.1, 0.89),  # Infeasible despite maximal QPS.
+            record(5, 96, 0.1, 0.99),  # Dominated in both archive coordinates.
+        ]
+        front = archive(records, config.guidance_objectives(), config.all_constraints())
+        self.assertEqual([r.sequence for r in front], [0, 1, 2, 3])
+        self.assertEqual([o.metric for o in config.objectives], ["qps"])
+
+    def test_guidance_extends_opt_in_efficiency_objectives_with_recall(self):
+        config = TuningConfig(
+            objectives=[
+                ObjectiveSpec(),
+                ObjectiveSpec(metric="build_total_time_s", direction="minimize"),
+            ]
+        )
+        self.assertEqual(
+            [(o.metric, o.direction) for o in config.guidance_objectives()],
+            [("qps", "maximize"), ("build_total_time_s", "minimize"), ("recall", "maximize")],
+        )
+        front = archive(
+            [record(0, 100, 10, 0.91), record(1, 99, 11, 0.99), record(2, 98, 12, 0.98)],
+            config.guidance_objectives(),
+            config.all_constraints(),
+        )
+        self.assertEqual([r.sequence for r in front], [0, 1])
 
     def test_explicit_multiobjective_archive_respects_directions_and_recall(self):
         objectives = [
@@ -170,6 +204,8 @@ class FakeLLM:
         self.roles = []
         self.extra_metric = extra_metric
         self.requested_metrics = []
+        self.objective_metrics = []
+        self.archive_metrics = []
 
     def complete(self, prompt, *, deadline=None):
         request = json.loads(prompt)
@@ -178,6 +214,8 @@ class FakeLLM:
             return CompletionResult("[{}]")
         self.roles.append("surrogate")
         self.requested_metrics.append(set(request["output_contract"]["predictions"][0]["metrics"]))
+        self.objective_metrics.append([o["metric"] for o in request["objectives"]])
+        self.archive_metrics.append([o["metric"] for o in request["archive_coordinates"]])
         values = []
         for candidate in request["candidates"]:
             values.append(
@@ -204,6 +242,93 @@ class MeasuredRunner(BaseRunner):
 
 
 class CALMTests(unittest.TestCase):
+    def test_tuner_transfers_four_point_frontier_and_returns_highest_feasible_qps(self):
+        class TradeoffRunner(BaseRunner):
+            def evaluate(self, request):
+                recalls = [0.91, 0.94, 0.97, 1.0, 0.89, 0.95]
+                index = request.seed - 42
+                return Observation(RunStatus.OK, {"qps": 100 - index, "recall": recalls[index]})
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = load_profile("qdrant-hnsw-dense")
+            config = TuningConfig(budget=6, initial_samples=2, strategy="random")
+            result = Tuner(
+                profile=profile,
+                tuning=config,
+                execution=ExecutionConfig(dataset="fake", distance="l2"),
+                runner=TradeoffRunner(RunnerContext(profile, {}, {}, root)),
+                artifact_dir=root,
+                experiment_name="archive-regression",
+            ).run()
+            self.assertEqual([item["sequence"] for item in result.pareto_candidates], [0, 1, 2, 3])
+            self.assertEqual(result.transfer_candidates, result.pareto_candidates)
+            self.assertEqual(result.best_metrics, {"qps": 100.0, "recall": 0.91})
+            self.assertEqual(
+                json.loads((root / "pareto_archive.json").read_text(encoding="utf-8")),
+                result.pareto_candidates,
+            )
+
+    def test_default_twenty_evaluation_budget_leaves_room_after_region_seeding(self):
+        config = TuningConfig()
+        self.assertEqual(config.budget, 20)
+        for name in ("milvus-native-dense", "qdrant-native-dense"):
+            regions = ProfilePartitioner(SearchSpace(load_profile(name))).regions
+            self.assertLessEqual(len(regions), config.initial_samples)
+            self.assertLess(config.initial_samples, config.budget)
+
+    def test_mature_regions_receive_contribution_for_recall_tradeoffs(self):
+        space = SearchSpace(load_profile("milvus-native-dense"))
+        partitioner = ProfilePartitioner(space)
+        regions = partitioner.regions[:2]
+        records = [
+            EvaluationRecord.from_observation(
+                sequence=i,
+                run_id=str(i),
+                candidate=space.canonicalize(region.fixed),
+                region_id=region.id,
+                observation=Observation(RunStatus.OK, {"qps": qps, "recall": recall}),
+            )
+            for i, (region, qps, recall) in enumerate(
+                zip(regions, [100, 99], [0.91, 1.0], strict=True)
+            )
+        ]
+        scores = partitioner.rank_regions(
+            records,
+            objective_metric="qps",
+            constraint_metric="recall",
+            threshold=0.9,
+            exploration_weight=0,
+            min_observations=1,
+        )
+        for score in scores:
+            if score.region in regions:
+                self.assertGreater(score.exploitation, 0)
+
+    def test_batch_hypervolume_can_prefer_a_slower_high_recall_proposal(self):
+        config = TuningConfig()
+        space = SearchSpace(load_profile("qdrant-hnsw-dense"))
+        predictions = [
+            LLMPrediction(
+                space.canonicalize({"hnsw.m": m}),
+                {"qps": MetricPrediction(qps, 1), "recall": MetricPrediction(recall, 0.01)},
+                probability_feasible=1,
+            )
+            for m, qps, recall in [(16, 101, 0.91), (32, 99, 0.99)]
+        ]
+        selector = ParetoBatchSelector(
+            space,
+            config.guidance_objectives(),
+            config.all_constraints(),
+            rng=random.Random(0),
+            exploration_probability=0,
+            diversity_weight=0,
+            uncertainty_weight=0,
+        )
+        selected = selector.select(predictions, [record(0, 100, 1, 0.91)], 1)
+        self.assertEqual(selected[0].prediction.candidate["hnsw.m"], 32)
+        self.assertGreater(selected[0].hypervolume_improvement, 0)
+
     def test_llm_is_used_for_both_roles_and_archive_contains_only_measurements(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -230,6 +355,8 @@ class CALMTests(unittest.TestCase):
             self.assertIn("surrogate", llm.roles)
             self.assertIn("proposer", llm.roles)
             self.assertTrue(all(names == {"qps", "recall"} for names in llm.requested_metrics))
+            self.assertTrue(all(names == ["qps"] for names in llm.objective_metrics))
+            self.assertTrue(all(names == ["qps", "recall"] for names in llm.archive_metrics))
             self.assertTrue(result.pareto_candidates)
             self.assertTrue(all(item["metrics"]["qps"] < 1000 for item in result.pareto_candidates))
             self.assertTrue((root / "llm/calls.jsonl").exists())

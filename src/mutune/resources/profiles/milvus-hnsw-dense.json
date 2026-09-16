@@ -11,10 +11,11 @@
   "capabilities": {
     "vector_kinds": ["dense"],
     "distances": ["l2", "cosine", "dot"],
-    "filters": ["exact", "range"],
+    "filters": ["exact", "range", "geo"],
     "indexes": ["hnsw"],
     "notes": [
-      "The vector-db-benchmark adapter normalizes cosine vectors and uses inner product."
+      "The vector-db-benchmark adapter normalizes cosine vectors and uses inner product.",
+      "Geo-radius requires explicit client payload-ID prefilter compatibility; its cost is included in each Milvus search, not native Milvus 2.3 geo support."
     ]
   },
   "experiment": {

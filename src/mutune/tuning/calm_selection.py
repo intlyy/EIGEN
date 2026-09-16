@@ -34,6 +34,8 @@ class CALMScore:
 
 
 class ParetoBatchSelector:
+    """Select using guidance coordinates (QPS/recall by default), not final rank."""
+
     def __init__(
         self,
         search_space: Any,

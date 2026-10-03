@@ -9,6 +9,9 @@ measures every candidate on every MiniDB, ranks performance and stability,
 then measures the top candidates on the original database. The final answer
 is the feasible configuration with the highest **measured full-database QPS**.
 
+Start with the [reproduction guide](docs/reproduction.md) for the six datasets,
+seven recall targets, supported ablations, sensitivity matrices and result export.
+
 ## Install and inspect
 
 Python 3.11 or newer is required. From the repository root:

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mutune.utils import atomic_write_json, ensure_within, fingerprint, safe_name
+from eigen.utils import atomic_write_json, ensure_within, fingerprint, safe_name
 
 
 class UtilsTests(unittest.TestCase):

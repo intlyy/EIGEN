@@ -14,7 +14,7 @@ datasets/datasets.json
 ```
 
 The CLI must accept the flags assembled in
-`src/mutune/runners/vectordb_benchmark.py:_command`: engine, dataset, host,
+`src/eigen/runners/vectordb_benchmark.py:_command`: engine, dataset, host,
 experiment and internally managed reuse flags. Manual `skip_upload`,
 `skip_configure` and `skip_search` settings are rejected, including when
 `state_reuse` is false. Use the validated pgvector state-reuse path where
@@ -57,9 +57,7 @@ For Geo-radius on Milvus, set the explicit
 generated geo study sets it on all MiniDBs and the full database. Packaged
 wrappers retain the upstream uploader and selected ANN index, compute exact
 payload eligibility inside the timed query, and send one ID-filtered Milvus
-search. This is a client-side compatibility path, not native Milvus 2.3 geo
-support. See [paper alignment](paper-alignment.md) for supported data, the filter
-byte limit and the precise measurement boundary.
+search.
 
 Every private snapshot also replaces the checked `BaseSearcher._search_one`
 method body while retaining upstream classes, method signatures and decorators.
@@ -88,7 +86,7 @@ upload-plus-build time is not pure index construction time. Memory usage is not 
 LLM output; an explicit extension with a memory objective requires a runner
 that actually measures it.
 
-Run `mutune benchmark-fingerprint PATH` to hash copied upstream source.
+Run `eigen benchmark-fingerprint PATH` to hash copied upstream source.
 Generated study configs set `expected_source_sha256`; the runner refuses a
 different source digest. MiniDB manifests similarly bind datasets by content
 hash. These hashes do not pin Python distributions, database images or drivers:
@@ -108,4 +106,4 @@ runtime values were read back. Confirm those effects in the actual experimental
 environment before making parameter-level performance claims. The bundled
 defaults target 2.3.1; other server versions require corresponding defaults and
 integration validation. The converted resource retains upstream attribution;
-its Apache 2.0 license is packaged as `mutune/resources/MILVUS-LICENSE`.
+its Apache 2.0 license is packaged as `eigen/resources/MILVUS-LICENSE`.

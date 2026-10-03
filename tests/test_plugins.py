@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from importlib.metadata import EntryPoint, EntryPoints
 from pathlib import Path
 from unittest import mock
 
-from mutune import plugins
-from mutune.api import BaseRunner, EvaluationRequest, Observation, RunnerContext
-from mutune.errors import PluginError
+from eigen import __version__, plugins
+from eigen.api import BaseRunner, EvaluationRequest, Observation, RunnerContext
+from eigen.errors import PluginError
 
 
 class _ThirdPartyRunner(BaseRunner):
@@ -31,6 +32,26 @@ class _FakeEntryPoint:
 
 
 class PluginDiscoveryTests(unittest.TestCase):
+    def test_installed_entry_points_are_selected_from_eigen_group(self) -> None:
+        entry_points = EntryPoints(
+            [
+                EntryPoint(
+                    name="third-party",
+                    value=f"{__name__}:_ThirdPartyRunner",
+                    group="eigen.runners",
+                ),
+                EntryPoint(
+                    name="unrelated",
+                    value="unavailable.module:Runner",
+                    group="another_application.runners",
+                ),
+            ]
+        )
+        with mock.patch.object(plugins.metadata, "entry_points", return_value=entry_points):
+            discovered = plugins.discover_runners(include_builtins=False)
+        self.assertEqual(set(discovered), {"third-party"})
+        self.assertIs(discovered["third-party"].load_class(), _ThirdPartyRunner)
+
     def test_builtin_discovery_is_lazy_and_has_stable_ids(self) -> None:
         with mock.patch.object(plugins, "_entry_points", return_value=[]):
             discovered = plugins.discover_runners()
@@ -63,6 +84,8 @@ class PluginDiscoveryTests(unittest.TestCase):
             with mock.patch.object(plugins, "_entry_points", return_value=[]):
                 runner = plugins.create_runner("dry-run", context)
             self.assertEqual(runner.PLUGIN_ID, "dry-run")
+            self.assertEqual(type(runner).__module__, "eigen.runners.dry_run")
+            self.assertEqual(runner.manifest()["eigen_version"], __version__)
 
     def test_unknown_runner_lists_available_plugins(self) -> None:
         with mock.patch.object(plugins, "_entry_points", return_value=[]):

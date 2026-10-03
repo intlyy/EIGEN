@@ -1,0 +1,35 @@
+"""Exact payload eligibility followed by one filtered Milvus ANN request.
+
+BaseSearcher times the entire search_one call, including radius evaluation and
+ID expression construction. This is an explicit compatibility implementation,
+not a claim that Milvus 2.3 has native spherical geo predicates.
+"""
+
+from engine.clients.milvus.eigen_geo import GeoRadiusFilter
+from engine.clients.milvus.eigen_search_base import MilvusSearcher as _Base
+
+
+class MilvusSearcher(_Base):
+    geo_filter = None
+
+    @classmethod
+    def init_client(cls, host, distance, connection_params, search_params):
+        settings = search_params.get("eigen_geo")
+        if not isinstance(settings, dict):
+            raise ValueError("missing explicit Milvus geo adapter settings")
+        cls.geo_filter = GeoRadiusFilter.from_dataset(**settings)
+        super().init_client(host, distance, connection_params, search_params)
+
+    @classmethod
+    def search_one(cls, query, top):
+        if cls.geo_filter is None:
+            raise RuntimeError("Milvus geo filter is not initialized")
+        expression = cls.geo_filter.expression(query.meta_conditions)
+        result = cls.collection.search(
+            data=[query.vector],
+            anns_field="vector",
+            param={"metric_type": cls.distance, "params": cls.search_params["config"]},
+            limit=top,
+            expr=expression,
+        )
+        return list(zip(result[0].ids, result[0].distances))

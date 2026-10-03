@@ -1,0 +1,34 @@
+{
+  "datasets": [
+    {
+      "name": "nytimes",
+      "description": "NYTimes: 290000 text vectors, 256 dimensions, cosine distance, 1000 queries; verify against the supplied source.",
+      "manifests": [{"label": "stratified-m3-r10", "path": "data/nytimes/stratified-m3-r10/manifest.json"}]
+    },
+    {
+      "name": "glove",
+      "description": "GloVe: 1183514 text vectors, 100 dimensions, cosine distance, 10000 queries; verify against the supplied source.",
+      "manifests": [{"label": "stratified-m3-r10", "path": "data/glove/stratified-m3-r10/manifest.json"}]
+    },
+    {
+      "name": "gist",
+      "description": "GIST: 1000000 image vectors, 960 dimensions, L2 distance, 1000 queries; verify against the supplied source.",
+      "manifests": [{"label": "stratified-m3-r10", "path": "data/gist/stratified-m3-r10/manifest.json"}]
+    },
+    {
+      "name": "tiny5m",
+      "description": "Tiny5M: 5000000 image vectors, 384 dimensions, L2 distance, 1000 queries; record the archive conversion recipe.",
+      "manifests": [{"label": "stratified-m3-r10", "path": "data/tiny5m/stratified-m3-r10/manifest.json"}]
+    },
+    {
+      "name": "msong",
+      "description": "Msong: 994185 audio vectors, 420 dimensions, L2 distance, 200 queries; record the archive conversion recipe.",
+      "manifests": [{"label": "stratified-m3-r10", "path": "data/msong/stratified-m3-r10/manifest.json"}]
+    },
+    {
+      "name": "geo-radius",
+      "description": "Geo-radius: 100000 synthetic vectors, 2048 dimensions, cosine distance, 1000 filtered queries; supply the documented subset recipe.",
+      "manifests": [{"label": "stratified-m3-r10", "path": "data/geo-radius/stratified-m3-r10/manifest.json"}]
+    }
+  ]
+}

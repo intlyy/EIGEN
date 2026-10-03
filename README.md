@@ -1,6 +1,9 @@
-# muTune
+# EIGEN
 
-muTune tunes vector databases with several independently sampled Mini-DBs and a
+Source implementation for **EIGEN: Efficient and Generalizable Vector Database
+Tuning with Mini-DBs and LLM-Guided Optimization**.
+
+EIGEN tunes vector databases with several independently sampled Mini-DBs and a
 constrained LLM optimizer, CALM. It merges complete feasible QPS-recall frontiers,
 measures every candidate on every MiniDB, ranks performance and stability,
 then measures the top candidates on the original database. The final answer
@@ -15,9 +18,10 @@ python -m venv .venv
 # Activate .venv with the command appropriate for your shell.
 python -m pip install -e ".[data,dev]"
 python scripts/check_static.py
-mutune profiles list
-mutune validate examples/dry-run.json
-mutune render examples/dry-run.json
+python -m unittest discover -s tests
+eigen profiles list
+eigen validate examples/dry-run.json
+eigen render examples/dry-run.json
 ```
 
 `validate`, `render` and `check_static.py` do not start databases or contact an
@@ -25,17 +29,19 @@ LLM. The core only needs Pydantic; the `data` extra adds NumPy, h5py and FAISS.
 Database SDKs belong in the external benchmark environment.
 
 For an explicitly synthetic workflow demonstration, use
-`mutune tune examples/dry-run.json`. Its metrics are simulated, and must never
+`eigen tune examples/dry-run.json`. Its metrics are simulated, and must never
 be reported as experimental results. `--dry-run` on `tune` also bypasses LLM
 calls and service startup. Use a separate artifact directory for demonstrations.
 
 ## Prepare Mini-DBs
 
-The HDF5 input must contain dense floating-point `train` and `test` matrices.
-Supply your own data; no datasets are redistributed here.
+The HDF5 input must contain dense floating-point `train` and `test` matrices;
+the original full database also needs valid exact ground truth for evaluation.
+Supply your own data; no datasets are redistributed here. Preserve the dataset
+provenance and conversion recipe described in the reproduction guide.
 
 ```bash
-mutune-build-minidbs --input data/source.hdf5 --output-dir data/minidbs --num-minidbs 3 --sample-ratio 0.1 --bucket-seed 42 --sample-seed 7630 --metric l2 --l2-bucket-width 1.0 --top-k 100
+eigen-build-minidbs --input data/source.hdf5 --output-dir data/minidbs --num-minidbs 3 --sample-ratio 0.1 --bucket-seed 42 --sample-seed 7630 --metric l2 --l2-bucket-width 1.0 --top-k 100
 ```
 
 
@@ -50,7 +56,7 @@ Generate all worker and full-database project files from the data manifest:
 
 ```bash
 python scripts/prepare_study.py --engine qdrant --manifest data/minidbs/manifest.json --benchmark-repo external/vector-db-benchmark --benchmark-python /absolute/path/to/benchmark-python --output experiments/qdrant
-mutune study experiments/qdrant/study.json --validate-only
+eigen study experiments/qdrant/study.json --validate-only
 ```
 
 Replace `--benchmark-python` with your benchmark environment's interpreter.
@@ -74,21 +80,14 @@ Set the API key in the environment variable named by `llm.api_key_env` (default
 `OPENAI_API_KEY`), then run:
 
 ```bash
-mutune study experiments/qdrant/study.json
+eigen study experiments/qdrant/study.json
 python scripts/summarize_study.py experiments/qdrant/artifacts/study
 ```
 
 The default model label is `gpt-5.4`, with medium reasoning as described in the
 paper. Endpoint compatibility and model availability must be checked in the
-experimental environment; both are configurable. No API credentials belong in
-project JSON. LLM usage is recorded separately for proposals and predictions.
+experimental environment; both are configurable. LLM usage is recorded separately for proposals and predictions.
 Dollar costs are only calculated when both token rates are explicitly supplied.
-
-Paper Section 5.1 uses QPS and recall as archive/hypervolume coordinates after
-applying the recall constraint. These guidance coordinates are separate from
-the final QPS objective. Additional efficiency objectives remain available through
-explicit `tuning.objectives` for extension experiments; recall is appended to
-their guidance space and remains a hard constraint.
 
 `study` runs these stages in order:
 
@@ -98,10 +97,9 @@ their guidance space and remains a hard constraint.
 4. Rank normalized mean performance plus stability (λ defaults to 1).
 5. Evaluate the top L candidates on the full database (L defaults to 5).
 
-`mutune tune PROJECT.json` runs only the local optimizer.
-`mutune evaluate PROJECT.json --candidate candidate.json --repeat 3` evaluates
-fixed configurations. `random` and `knn` are explicit ablations; CALM uses an
-LLM for both generation and prediction and does not substitute KNN predictions.
+`eigen tune PROJECT.json` runs only the local optimizer.
+`eigen evaluate PROJECT.json --candidate candidate.json --repeat 3` evaluates
+fixed configurations. `random` and `knn` are explicit ablations.
 
 ## Artifacts and verification
 
@@ -118,3 +116,13 @@ frontier. `transfer_candidates` is a compatibility output containing that same
 frontier, with no per-region cap. The old `transfer_candidates_per_region`
 setting is accepted but deprecated and ignored. Region and batch hypervolume
 use those same guidance coordinates; final selection still maximizes feasible QPS.
+
+CALM initialization defaults to one physical evaluation per conditional region
+(`initial_samples: null`), hence seven on the bundled Milvus profile. Local
+budget 20 includes initialization and failed database evaluations. Cross-Mini-DB
+measurements and final shortlist validation are counted separately.
+
+`paper_aggregate_total_s` sums worker costs, following Sections 6.1 and 6.7.
+Its five components separate construction, physical Mini-DB work, LLM inference,
+numerical aggregation and full-database validation. Elapsed pipeline time remains
+a separate diagnostic.

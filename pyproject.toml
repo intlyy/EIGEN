@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mutune"
-version = "0.4.0"
-description = "MiniDB transfer and constrained LLM optimization for vector databases"
+name = "eigen"
+version = "0.6.0"
+description = "EIGEN: Mini-DB transfer and constrained LLM optimization for vector databases"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2.7,<3"]
@@ -16,23 +16,23 @@ data = ["numpy>=1.26,<3", "h5py>=3.10,<4", "faiss-cpu>=1.8,<2"]
 dev = ["ruff>=0.6,<1"]
 
 [project.scripts]
-mutune = "mutune.cli:main"
-mutune-build-minidbs = "mutune.minidb:main"
-mutune-build-geo-minidbs = "mutune.geo_minidb:main"
+eigen = "eigen.cli:main"
+eigen-build-minidbs = "eigen.minidb:main"
+eigen-build-geo-minidbs = "eigen.geo_minidb:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["mutune*"]
+include = ["eigen*"]
 
 [tool.setuptools.package-data]
-"mutune.resources" = ["milvus-v2.3.1.json", "MILVUS-LICENSE"]
-"mutune.resources.profiles" = ["*.json"]
-"mutune.resources.vectordb_benchmark" = ["*.py.txt"]
+"eigen.resources" = ["milvus-v2.3.1.json", "MILVUS-LICENSE"]
+"eigen.resources.profiles" = ["*.json"]
+"eigen.resources.vectordb_benchmark" = ["*.py.txt"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-extend-exclude = ["tmp", "output", "build", "src/mutune.egg-info"]
+extend-exclude = ["tmp", "output", "build", "src/eigen.egg-info"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B"]

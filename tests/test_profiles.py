@@ -6,16 +6,16 @@ import unittest
 
 from pydantic import ValidationError
 
-from mutune.api import WorkloadSpec
-from mutune.errors import CandidateError, ConfigurationError
-from mutune.models import EngineProfile, SearchSpaceSpec
-from mutune.profiles import (
+from eigen.api import WorkloadSpec
+from eigen.errors import CandidateError, ConfigurationError
+from eigen.models import EngineProfile, SearchSpaceSpec
+from eigen.profiles import (
     list_builtin_profiles,
     load_profile,
     profile_fingerprint,
     validate_workload,
 )
-from mutune.search_space import SearchSpace
+from eigen.search_space import SearchSpace
 
 COMMON_PROFILE_IDS = {
     "milvus-hnsw-dense",

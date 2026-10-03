@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from mutune.config import load_project
-from mutune.errors import CandidateError
-from mutune.profiles import load_profile
-from mutune.rendering import render_experiment
-from mutune.search_space import SearchSpace
-from mutune.tuning import ProfilePartitioner
+from eigen.config import load_project
+from eigen.errors import CandidateError
+from eigen.profiles import load_profile
+from eigen.rendering import render_experiment
+from eigen.search_space import SearchSpace
+from eigen.tuning import ProfilePartitioner
 
 PG_SERVER_PARAMETERS = {
     "postgres.shared_buffers_mb",

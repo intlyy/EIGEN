@@ -8,9 +8,10 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from mutune.api import BaseRunner, Observation, RunnerContext, RunStatus
-from mutune.config import (
+from eigen.api import BaseRunner, Observation, RunnerContext, RunStatus
+from eigen.config import (
     ExecutionConfig,
     LoadedProject,
     MetricConstraint,
@@ -18,17 +19,17 @@ from mutune.config import (
     ProjectConfig,
     TuningConfig,
 )
-from mutune.llm import CompletionResult, LLMError
-from mutune.profiles import load_profile
-from mutune.search_space import SearchSpace
-from mutune.study import LoadedStudy, StudyConfig, rank_cross_validation, run_study
-from mutune.tuning.calm_selection import ParetoBatchSelector
-from mutune.tuning.history import EvaluationRecord, candidate_key
-from mutune.tuning.llm_surrogate import LLMPrediction, LLMSurrogate
-from mutune.tuning.pareto import archive, hypervolume
-from mutune.tuning.partitioning import ProfilePartitioner
-from mutune.tuning.surrogate import MetricPrediction
-from mutune.tuning.tuner import Tuner
+from eigen.llm import CompletionResult, LLMError
+from eigen.profiles import load_profile
+from eigen.search_space import SearchSpace
+from eigen.study import LoadedStudy, StudyConfig, rank_cross_validation, run_study
+from eigen.tuning.calm_selection import ParetoBatchSelector
+from eigen.tuning.history import EvaluationRecord, candidate_key
+from eigen.tuning.llm_surrogate import LLMPrediction, LLMSurrogate
+from eigen.tuning.pareto import archive, hypervolume
+from eigen.tuning.partitioning import ProfilePartitioner
+from eigen.tuning.surrogate import MetricPrediction
+from eigen.tuning.tuner import Tuner
 
 
 def record(i, qps, build, recall=0.95):
@@ -269,13 +270,72 @@ class CALMTests(unittest.TestCase):
                 result.pareto_candidates,
             )
 
-    def test_default_twenty_evaluation_budget_leaves_room_after_region_seeding(self):
-        config = TuningConfig()
-        self.assertEqual(config.budget, 20)
-        for name in ("milvus-native-dense", "qdrant-native-dense"):
-            regions = ProfilePartitioner(SearchSpace(load_profile(name))).regions
-            self.assertLessEqual(len(regions), config.initial_samples)
-            self.assertLess(config.initial_samples, config.budget)
+    def test_default_milvus_seeds_seven_regions_then_uses_thirteen_guided_evaluations(self):
+        class UniformRunner(BaseRunner):
+            def evaluate(self, request):
+                return Observation(RunStatus.OK, {"qps": 100, "recall": 0.95})
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = load_profile("milvus-native-dense")
+            config = TuningConfig()
+            self.assertIsNone(config.initial_samples)
+            tuner = Tuner(
+                profile=profile,
+                tuning=config,
+                execution=ExecutionConfig(dataset="fake", distance="l2", vector_size=100),
+                runner=UniformRunner(RunnerContext(profile, {}, {}, root)),
+                artifact_dir=root,
+                experiment_name="paper-initialization",
+                llm_client=FakeLLM(),
+            )
+            self.assertEqual(len(tuner.partitioner.regions), 7)
+            result = tuner.run()
+            records = tuner.history.records
+            self.assertTrue(result.complete)
+            self.assertEqual(len(records), 20)
+            self.assertEqual(len({r.region_id for r in records[:7]}), 7)
+            self.assertTrue(all(not r.acquisition for r in records[:7]))
+            self.assertEqual(sum(bool(r.acquisition) for r in records), 13)
+            manifest = json.loads((root / "run_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["initial_evaluations"], 7)
+            self.assertEqual(manifest["resume_contract"]["initialization_policy"], "one_per_region")
+            config.initial_samples = 14
+            self.assertEqual(tuner._initial_design_size(), 14)
+            self.assertEqual(tuner._resume_contract()["initialization_policy"], "explicit_override")
+
+    def test_global_random_fallback_has_fresh_deadline_after_generation_timeout(self):
+        clock = [0.0]
+
+        class TimedOutProposer:
+            def propose(self, count, *, deadline, **kwargs):
+                clock[0] = deadline
+                return []
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = load_profile("qdrant-hnsw-dense")
+            tuner = Tuner(
+                profile=profile,
+                tuning=TuningConfig(),
+                execution=ExecutionConfig(dataset="fake", distance="l2"),
+                runner=MeasuredRunner(RunnerContext(profile, {}, {}, root)),
+                artifact_dir=root,
+                experiment_name="fallback-timeout",
+                proposer=TimedOutProposer(),
+                llm_client=FakeLLM(),
+                proposal_timeout_s=1,
+            )
+            tuner._run_initial_design()
+            with (
+                patch("eigen.tuning.tuner.time.monotonic", side_effect=lambda: clock[0]),
+                patch.object(tuner.rng, "random", return_value=1.0),
+            ):
+                pool, _ = tuner._proposal_pool()
+            self.assertEqual(len(pool), 12)
+            self.assertEqual(len({candidate_key(c) for c in pool}), 12)
+            self.assertTrue(all(candidate_key(c) not in tuner.history.seen_keys for c in pool))
+            self.assertTrue(all(tuner.search_space.canonicalize(c) == c for c in pool))
 
     def test_mature_regions_receive_contribution_for_recall_tradeoffs(self):
         space = SearchSpace(load_profile("milvus-native-dense"))

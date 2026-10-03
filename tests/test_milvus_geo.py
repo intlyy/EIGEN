@@ -12,9 +12,9 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from mutune.benchmark_compat import install_milvus_geo_compatibility
-from mutune.errors import RunnerError
-from mutune.geo import (
+from eigen.benchmark_compat import install_milvus_geo_compatibility
+from eigen.errors import RunnerError
+from eigen.geo import (
     DEFAULT_MAX_FILTER_BYTES,
     EARTH_RADIUS_METERS,
     GeoRadiusFilter,
@@ -23,7 +23,7 @@ from mutune.geo import (
     _geo_mask,
 )
 
-_OVERLAY_PACKAGE = "mutune.resources.vectordb_benchmark"
+_OVERLAY_PACKAGE = "eigen.resources.vectordb_benchmark"
 
 
 def _clause(lat=0.0, lon=0.0, radius=150_000.0, field="location"):
@@ -65,14 +65,14 @@ def _load_overlay(resource_name, base_class):
     }
     modules.update(
         {
-            "engine.clients.milvus.mutune_configure_base": _module(
-                "engine.clients.milvus.mutune_configure_base", MilvusConfigurator=base_class
+            "engine.clients.milvus.eigen_configure_base": _module(
+                "engine.clients.milvus.eigen_configure_base", MilvusConfigurator=base_class
             ),
-            "engine.clients.milvus.mutune_search_base": _module(
-                "engine.clients.milvus.mutune_search_base", MilvusSearcher=base_class
+            "engine.clients.milvus.eigen_search_base": _module(
+                "engine.clients.milvus.eigen_search_base", MilvusSearcher=base_class
             ),
-            "engine.clients.milvus.mutune_geo": _module(
-                "engine.clients.milvus.mutune_geo", GeoRadiusFilter=GeoRadiusFilter
+            "engine.clients.milvus.eigen_geo": _module(
+                "engine.clients.milvus.eigen_geo", GeoRadiusFilter=GeoRadiusFilter
             ),
         }
     )
@@ -243,11 +243,11 @@ class MilvusGeoOverlayTests(unittest.TestCase):
             self.assertEqual((directory / "upload.py").read_bytes(), before["upload"])
             self.assertFalse(any(path.endswith("/upload.py") for path in changed))
             for name in ("configure", "search"):
-                self.assertEqual((directory / f"mutune_{name}_base.py").read_bytes(), before[name])
+                self.assertEqual((directory / f"eigen_{name}_base.py").read_bytes(), before[name])
                 self.assertNotEqual((directory / f"{name}.py").read_bytes(), before[name])
             self.assertEqual(
-                (directory / "mutune_geo.py").read_bytes(),
-                resources.files("mutune").joinpath("geo.py").read_bytes(),
+                (directory / "eigen_geo.py").read_bytes(),
+                resources.files("eigen").joinpath("geo.py").read_bytes(),
             )
             with self.assertRaises(RunnerError):
                 install_milvus_geo_compatibility(workspace)
@@ -315,7 +315,7 @@ class MilvusGeoOverlayTests(unittest.TestCase):
             params = {
                 "config": {"ef": 83},
                 "parallel": 4,
-                "mutune_geo": {"dataset_path": str(dataset), "schema": {"location": "geo"}},
+                "eigen_geo": {"dataset_path": str(dataset), "schema": {"location": "geo"}},
             }
             connection = {"port": 19531}
             searcher.init_client("server", "cosine", connection, params)

@@ -1,0 +1,141 @@
+"""Pgvector uploader with HNSW, IVFFlat, and exact-search support.
+
+This module is copied over the matching vector-db-benchmark module inside an
+isolated EIGEN evaluation workspace.  It deliberately has no dependency on
+EIGEN at runtime.
+"""
+
+from typing import List, Mapping
+
+import numpy as np
+import psycopg
+from pgvector.psycopg import register_vector
+
+from dataset_reader.base_reader import Record
+from engine.base_client import IncompatibilityError
+from engine.base_client.distances import Distance
+from engine.base_client.upload import BaseUploader
+from engine.clients.pgvector.config import get_db_config
+
+
+_INDEX_TYPE_ALIASES = {
+    "hnsw": "hnsw",
+    "ivfflat": "ivfflat",
+    "ivf_flat": "ivfflat",
+    "ivf": "ivfflat",
+    "exact": "exact",
+    "flat": "exact",
+}
+
+
+def _index_type(params: Mapping) -> str:
+    value = params.get("index_type", "hnsw")
+    if not isinstance(value, str):
+        raise IncompatibilityError("pgvector index_type must be a string")
+    normalized = _INDEX_TYPE_ALIASES.get(value.strip().lower())
+    if normalized is None:
+        supported = ", ".join(sorted({"exact", "hnsw", "ivfflat"}))
+        raise IncompatibilityError(
+            f"Unsupported pgvector index_type {value!r}; expected one of: {supported}"
+        )
+    return normalized
+
+
+def _config(params: Mapping, key: str) -> Mapping:
+    value = params.get(key)
+    if not isinstance(value, Mapping):
+        raise IncompatibilityError(f"pgvector {key} must be an object")
+    return value
+
+
+def _positive_int(params: Mapping, key: str, label: str) -> int:
+    value = params.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise IncompatibilityError(f"pgvector {label} must be a positive integer")
+    return value
+
+
+class PgVectorUploader(BaseUploader):
+    DISTANCE_MAPPING = {
+        Distance.L2: "vector_l2_ops",
+        Distance.COSINE: "vector_cosine_ops",
+    }
+    conn = None
+    cur = None
+    upload_params = {}
+
+    @classmethod
+    def init_client(cls, host, distance, connection_params, upload_params):
+        cls.conn = psycopg.connect(**get_db_config(host, connection_params))
+        register_vector(cls.conn)
+        cls.cur = cls.conn.cursor()
+        cls.upload_params = upload_params
+
+    @classmethod
+    def upload_batch(cls, batch: List[Record]):
+        ids, vectors = [], []
+        for record in batch:
+            ids.append(record.id)
+            vectors.append(record.vector)
+
+        vectors = np.array(vectors)
+        with cls.cur.copy(
+            "COPY items (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
+        ) as copy:
+            copy.set_types(["integer", "vector"])
+            for item_id, embedding in zip(ids, vectors):
+                copy.write_row((item_id, embedding))
+
+    @classmethod
+    def _create_index(cls, distance):
+        try:
+            distance_type = cls.DISTANCE_MAPPING[distance]
+        except KeyError as error:
+            raise IncompatibilityError(
+                f"Unsupported pgvector distance metric: {distance}"
+            ) from error
+
+        selected_index = _index_type(cls.upload_params)
+        if selected_index == "exact":
+            return {"index_type": selected_index, "index_created": False}
+
+        if selected_index == "hnsw":
+            params = _config(cls.upload_params, "hnsw_config")
+            m = _positive_int(params, "m", "hnsw_config.m")
+            ef_construction = _positive_int(
+                params, "ef_construct", "hnsw_config.ef_construct"
+            )
+            cls.conn.execute(
+                "CREATE INDEX ON items USING hnsw "
+                f"(embedding {distance_type}) "
+                f"WITH (m = {m}, ef_construction = {ef_construction})"
+            )
+        else:
+            params = _config(cls.upload_params, "ivfflat_config")
+            lists = _positive_int(params, "lists", "ivfflat_config.lists")
+            cls.conn.execute(
+                "CREATE INDEX ON items USING ivfflat "
+                f"(embedding {distance_type}) WITH (lists = {lists})"
+            )
+
+        return {"index_type": selected_index, "index_created": True}
+
+    @classmethod
+    def post_upload(cls, distance):
+        return cls._create_index(distance)
+
+    @classmethod
+    def rebuild_index(cls, distance):
+        """Replace only the vector ANN index while retaining uploaded rows."""
+
+        cls.conn.execute("DROP INDEX IF EXISTS items_embedding_idx")
+        return cls._create_index(distance)
+
+    @classmethod
+    def delete_client(cls):
+        if cls.cur:
+            cls.cur.close()
+        if cls.conn:
+            cls.conn.close()
+        cls.cur = None
+        cls.conn = None

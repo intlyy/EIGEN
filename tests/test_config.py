@@ -7,8 +7,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from mutune.config import ProjectConfig, load_project
-from mutune.errors import ConfigurationError
+from eigen.config import ProjectConfig, load_project
+from eigen.errors import ConfigurationError
 
 
 def valid_payload() -> dict:

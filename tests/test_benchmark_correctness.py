@@ -11,12 +11,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from mutune.api import EvaluationRequest, RunnerContext, WorkloadSpec
-from mutune.benchmark_compat import install_benchmark_compatibility
-from mutune.errors import ConfigurationError, RunnerError
-from mutune.profiles import load_profile
-from mutune.rendering import ExperimentRenderer
-from mutune.runners.vectordb_benchmark import VectorDBBenchmarkRunner
+from eigen.api import EvaluationRequest, RunnerContext, WorkloadSpec
+from eigen.benchmark_compat import install_benchmark_compatibility
+from eigen.errors import ConfigurationError, RunnerError
+from eigen.profiles import load_profile
+from eigen.rendering import ExperimentRenderer
+from eigen.runners.vectordb_benchmark import VectorDBBenchmarkRunner
 
 BASE = """import time
 DEFAULT_TOP = 10
@@ -186,7 +186,7 @@ class FreshMeasurementTests(unittest.TestCase):
                     42,
                     60.0,
                 )
-                with patch("mutune.runners.vectordb_benchmark._run_process", side_effect=process):
+                with patch("eigen.runners.vectordb_benchmark._run_process", side_effect=process):
                     result = runner.evaluate(request)
                 self.assertEqual(result.ok, expected_ok, result.error)
                 if expected_ok:

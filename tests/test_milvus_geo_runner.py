@@ -12,12 +12,12 @@ from unittest.mock import patch
 
 import numpy as np
 
-from mutune.api import EvaluationRequest, RunnerContext, WorkloadSpec
-from mutune.benchmark_compat import MILVUS_GEO_CONTRACT
-from mutune.errors import ConfigurationError
-from mutune.profiles import load_profile
-from mutune.rendering import ExperimentRenderer
-from mutune.runners.vectordb_benchmark import VectorDBBenchmarkRunner
+from eigen.api import EvaluationRequest, RunnerContext, WorkloadSpec
+from eigen.benchmark_compat import MILVUS_GEO_CONTRACT
+from eigen.errors import ConfigurationError
+from eigen.profiles import load_profile
+from eigen.rendering import ExperimentRenderer
+from eigen.runners.vectordb_benchmark import VectorDBBenchmarkRunner
 
 CONNECT = """def connect(host, connection_params):
     return connections.connect(alias="default", host=host,
@@ -108,7 +108,7 @@ class MilvusGeoRunnerTests(unittest.TestCase):
             )[0]
             expected = json.loads(rendered_before)
             expected["name"] = experiment_name
-            expected["search_params"][0]["mutune_geo"] = {
+            expected["search_params"][0]["eigen_geo"] = {
                 "dataset_path": str(cwd / "datasets/local-data"),
                 "schema": {"location": "geo"},
                 "max_filter_bytes": 4096,
@@ -134,11 +134,11 @@ class MilvusGeoRunnerTests(unittest.TestCase):
             directory = cwd / "engine/clients/milvus"
             self.assertIn("GeoRadiusFilter", (directory / "search.py").read_text())
             self.assertIn("local.config.schema = {}", (directory / "configure.py").read_text())
-            self.assertIn("class MilvusSearcher", (directory / "mutune_search_base.py").read_text())
+            self.assertIn("class MilvusSearcher", (directory / "eigen_search_base.py").read_text())
             self.assertIn(
-                "class MilvusConfigurator", (directory / "mutune_configure_base.py").read_text()
+                "class MilvusConfigurator", (directory / "eigen_configure_base.py").read_text()
             )
-            self.assertTrue((directory / "mutune_geo.py").is_file())
+            self.assertTrue((directory / "eigen_geo.py").is_file())
             self.assertIn("preserve ANN index construction", (directory / "upload.py").read_text())
             self.assertNotIn("--skip-upload", argv)
             params = {"experiment": experiment_name, "engine": "milvus", "dataset": "local-geo"}
@@ -152,7 +152,7 @@ class MilvusGeoRunnerTests(unittest.TestCase):
             return 0, False, 0.001
 
         with patch(
-            "mutune.runners.vectordb_benchmark._run_process", side_effect=synthetic_process
+            "eigen.runners.vectordb_benchmark._run_process", side_effect=synthetic_process
         ) as process:
             result = runner.evaluate(self.request)
         self.assertTrue(result.ok, result.error)
@@ -161,7 +161,7 @@ class MilvusGeoRunnerTests(unittest.TestCase):
         self.assertEqual(result.auxiliary["runner"]["max_geo_filter_bytes"], 4096)
         command = next(Path(p) for p in result.artifacts if Path(p).name == "command.json")
         self.assertIn(
-            "engine/clients/milvus/mutune_geo.py",
+            "engine/clients/milvus/eigen_geo.py",
             json.loads(command.read_text())["compatibility_overlays"],
         )
         self.assertEqual(
@@ -192,7 +192,7 @@ class MilvusGeoRunnerTests(unittest.TestCase):
 
     def test_unfiltered_request_cannot_reuse_a_geo_runner(self):
         request = replace(self.request, workload=replace(self.request.workload, filtered=False))
-        with patch("mutune.runners.vectordb_benchmark._run_process") as process:
+        with patch("eigen.runners.vectordb_benchmark._run_process") as process:
             result = self.runner().evaluate(request)
         self.assertFalse(result.ok)
         self.assertIn("different workload", result.error)

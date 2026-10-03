@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from mutune.errors import CandidateError
-from mutune.models import EngineProfile
-from mutune.profiles import load_profile
-from mutune.rendering import ExperimentRenderer, get_json_pointer, render_experiment
+from eigen.errors import CandidateError
+from eigen.models import EngineProfile
+from eigen.profiles import load_profile
+from eigen.rendering import ExperimentRenderer, get_json_pointer, render_experiment
 
 CANDIDATE = {
     "hnsw.m": 32,

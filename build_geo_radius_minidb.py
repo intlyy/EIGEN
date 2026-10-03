@@ -1,6 +1,6 @@
-"""Compatibility entry point; install muTune first."""
+"""Compatibility entry point; install EIGEN first."""
 
-from mutune.geo_minidb import main
+from eigen.geo_minidb import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

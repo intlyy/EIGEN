@@ -1,6 +1,6 @@
-"""Build the paper MiniDB ensemble; install muTune with the datasets extra."""
+"""Build the paper MiniDB ensemble; install EIGEN with the datasets extra."""
 
-from mutune.minidb import main
+from eigen.minidb import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

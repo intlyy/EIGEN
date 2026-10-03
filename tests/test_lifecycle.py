@@ -8,8 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from mutune.errors import ConfigurationError, RunnerError
-from mutune.lifecycle import (
+from eigen.errors import ConfigurationError, RunnerError
+from eigen.lifecycle import (
     DockerComposeLifecycle,
     ExternalLifecycle,
     ReadyCheck,
@@ -18,6 +18,35 @@ from mutune.lifecycle import (
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_compose_factory_default_eigen_name_constructs_without_external_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
+            with (
+                mock.patch.object(subprocess, "run") as process,
+                mock.patch.object(socket, "create_connection") as connect,
+            ):
+                lifecycle = create_lifecycle(
+                    {
+                        "mode": "docker_compose",
+                        "settings": {
+                            "compose_file": "compose.yaml",
+                            "environment": {"EIGEN_PORT": "15432"},
+                            "ready_check": {"kind": "tcp", "host": "127.0.0.1", "port": 15432},
+                        },
+                    },
+                    workspace_root=root,
+                    artifact_dir=root / "artifacts",
+                    default_endpoint="127.0.0.1:15432",
+                )
+                process.assert_not_called()
+                connect.assert_not_called()
+            self.assertIsInstance(lifecycle, DockerComposeLifecycle)
+            self.assertEqual(lifecycle.project_name, "eigen-run")
+            self.assertEqual(lifecycle._argv("config")[-3:], ["-p", "eigen-run", "config"])
+            self.assertEqual(lifecycle.environment, {"EIGEN_PORT": "15432"})
+            self.assertFalse((root / "artifacts").exists())
+
     def test_lifecycle_defaults_to_external(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -92,7 +121,7 @@ class LifecycleTests(unittest.TestCase):
                     ready_check=ReadyCheck(kind="none"),
                     compose_file=outside,
                     workspace_root=workspace,
-                    project_name="mutune-test",
+                    project_name="eigen-test",
                     artifact_dir=root / "artifacts",
                 )
 
@@ -112,7 +141,7 @@ class LifecycleTests(unittest.TestCase):
                 ready_check=ReadyCheck(kind="none"),
                 compose_file=compose,
                 workspace_root=root,
-                project_name="mutune-test",
+                project_name="eigen-test",
                 artifact_dir=root / "artifacts",
             )
             with mock.patch.object(subprocess, "run", side_effect=fake_run):
@@ -140,7 +169,7 @@ class LifecycleTests(unittest.TestCase):
                 ready_check=ReadyCheck(kind="none"),
                 compose_file=compose,
                 workspace_root=root,
-                project_name="mutune-preserve-test",
+                project_name="eigen-preserve-test",
                 artifact_dir=root / "artifacts",
                 remove_volumes=True,
             )
@@ -167,7 +196,7 @@ class LifecycleTests(unittest.TestCase):
                     ready_check=ReadyCheck(kind="none"),
                     compose_file=compose,
                     workspace_root=root,
-                    project_name="mutune-test",
+                    project_name="eigen-test",
                     artifact_dir=root / "artifacts",
                     environment={"DOCKER_HOST": "ssh://unexpected"},
                 )
@@ -183,7 +212,7 @@ class LifecycleTests(unittest.TestCase):
                 ready_check=ReadyCheck(kind="none"),
                 compose_file=compose,
                 workspace_root=root,
-                project_name="mutune-postgres-test",
+                project_name="eigen-postgres-test",
                 artifact_dir=artifacts,
                 server_config={
                     "kind": "postgresql",
@@ -253,7 +282,7 @@ class LifecycleTests(unittest.TestCase):
                 ),
                 compose_file=compose,
                 workspace_root=root,
-                project_name="mutune-postgres-retry-test",
+                project_name="eigen-postgres-retry-test",
                 artifact_dir=artifacts,
                 server_config={"kind": "postgresql", "service": "pgvector"},
             )
@@ -308,7 +337,7 @@ class LifecycleTests(unittest.TestCase):
                 ready_check=ReadyCheck(kind="none"),
                 compose_file=compose,
                 workspace_root=root,
-                project_name="mutune-postgres-test",
+                project_name="eigen-postgres-test",
                 artifact_dir=root / "artifacts",
                 server_config={"kind": "postgresql", "service": "pgvector"},
             )
@@ -329,7 +358,7 @@ class LifecycleTests(unittest.TestCase):
                 ready_check=ReadyCheck(kind="none"),
                 compose_file=compose,
                 workspace_root=root,
-                project_name="mutune-milvus-test",
+                project_name="eigen-milvus-test",
                 artifact_dir=artifacts,
                 server_config={"kind": "milvus_user_yaml", "service": "standalone"},
             )

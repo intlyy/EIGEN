@@ -8,9 +8,9 @@ import shutil
 import sys
 from pathlib import Path
 
-from mutune.benchmark_compat import MILVUS_GEO_CONTRACT
-from mutune.runners.vectordb_benchmark import benchmark_source_sha256
-from mutune.utils import atomic_write_json
+from eigen.benchmark_compat import MILVUS_GEO_CONTRACT
+from eigen.runners.vectordb_benchmark import benchmark_source_sha256
+from eigen.utils import atomic_write_json
 
 
 def project_payload(
@@ -27,24 +27,28 @@ def project_payload(
     model,
     top_k=10,
     budget=20,
+    recall_threshold=0.9,
+    dataset_description="Set the dataset name and characteristics before experiments.",
+    search_parallel=16,
+    upload_parallel=16,
 ):
     """Repository defaults; unspecified paper hyperparameters are documented."""
     connection = {"port": port}
     host = "127.0.0.1"
-    environment = {"MUTUNE_PORT": str(port)}
+    environment = {"EIGEN_PORT": str(port)}
     if engine == "qdrant":
         host = f"http://127.0.0.1:{port}"
         connection = {"grpc_port": port + 1, "timeout": 120}
-        environment["MUTUNE_GRPC_PORT"] = str(port + 1)
+        environment["EIGEN_GRPC_PORT"] = str(port + 1)
     elif engine == "pgvector":
         connection.update(dbname="postgres", user="postgres")
     else:
-        environment["MUTUNE_HTTP_PORT"] = str(9091 + port - 19530)
+        environment["EIGEN_HTTP_PORT"] = str(9091 + port - 19530)
     lifecycle = {
         "mode": "docker_compose",
         "settings": {
             "compose_file": f"./deploy/{engine}.compose.yml",
-            "project_name": f"mutune-{engine}-{label}",
+            "project_name": f"eigen-{engine}-{label}",
             "endpoint": host,
             "environment": environment,
             "ready_check": {"kind": "tcp", "host": "127.0.0.1", "port": port, "timeout_s": 180},
@@ -64,14 +68,14 @@ def project_payload(
         "artifact_dir": f"./artifacts/{engine}-{label}",
         "execution": {
             "dataset": f"{engine}-{label}",
-            "dataset_description": "Set the dataset name and characteristics before experiments.",
+            "dataset_description": dataset_description,
             "host": host,
             "connection_params": connection,
             "distance": distance,
             "vector_size": dimension,
             "top_k": top_k,
-            "search_parallel": 16,
-            "upload_parallel": 16,
+            "search_parallel": search_parallel,
+            "upload_parallel": upload_parallel,
             "batch_size": 1024,
             "hardware": {"cpu_cores_per_database": 16, "memory_gib_per_database": 64},
         },
@@ -91,12 +95,12 @@ def project_payload(
         "tuning": {
             "strategy": "calm",
             "budget": budget,
-            "initial_samples": min(14, budget),
+            "initial_samples": None,
             "proposals_per_round": 12,
             "evaluations_per_round": 4,
             "regions_per_round": 1,
             "seed": seed,
-            "recall_threshold": 0.9,
+            "recall_threshold": recall_threshold,
             "objectives": [
                 {"metric": "qps", "direction": "maximize"},
             ],
@@ -120,11 +124,23 @@ def main():
     parser.add_argument("--model", default="gpt-5.4")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--budget-per-minidb", type=int, default=20)
+    parser.add_argument("--recall-threshold", type=float, default=0.9)
+    parser.add_argument("--seed", type=int, default=42, help="Base seed; worker i uses seed + i")
+    parser.add_argument(
+        "--dataset-description",
+        default="Set the dataset name and characteristics before experiments.",
+    )
+    parser.add_argument("--search-parallel", type=int, default=16)
+    parser.add_argument("--upload-parallel", type=int, default=16)
     args = parser.parse_args()
     manifest_path = args.manifest.resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if args.budget_per_minidb < 1:
         parser.error("--budget-per-minidb must be positive")
+    if not 0 <= args.recall_threshold <= 1:
+        parser.error("--recall-threshold must be in [0, 1]")
+    if args.search_parallel < 1 or args.upload_parallel < 1:
+        parser.error("--search-parallel and --upload-parallel must be positive")
     if manifest.get("format") == "geo" and args.engine not in {"milvus", "qdrant"}:
         parser.error("geo-radius requires Milvus or Qdrant")
     if not 0 < args.top_k <= manifest["top_k"]:
@@ -155,10 +171,14 @@ def main():
             distance=manifest["metric"],
             benchmark_repo=args.benchmark_repo.resolve(),
             python_executable=args.benchmark_python.resolve(),
-            seed=42 + i,
+            seed=args.seed + i,
             model=args.model,
             top_k=args.top_k,
             budget=args.budget_per_minidb,
+            recall_threshold=args.recall_threshold,
+            dataset_description=args.dataset_description,
+            search_parallel=args.search_parallel,
+            upload_parallel=args.upload_parallel,
         )
         payload["runner"]["settings"]["expected_source_sha256"] = source_digest
         if manifest.get("format") == "geo":

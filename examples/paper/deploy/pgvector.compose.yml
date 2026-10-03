@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: pgvector.Dockerfile
     ports:
-      - "127.0.0.1:${MUTUNE_PORT:-5432}:5432"
+      - "127.0.0.1:${EIGEN_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_DB: postgres
@@ -12,7 +12,7 @@ services:
     volumes:
       - pgvector-data:/var/lib/postgresql/data
     shm_size: 32g
-    cpus: "${MUTUNE_CPUS:-16}"
-    mem_limit: "${MUTUNE_MEMORY:-64g}"
+    cpus: "${EIGEN_CPUS:-16}"
+    mem_limit: "${EIGEN_MEMORY:-64g}"
 volumes:
   pgvector-data:

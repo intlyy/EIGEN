@@ -7,20 +7,20 @@ import json
 import tomllib
 from pathlib import Path
 
-from mutune.config import ProjectConfig, TuningConfig
-from mutune.models import EngineProfile
-from mutune.rendering import ExperimentRenderer
-from mutune.search_space import SearchSpace
-from mutune.study import StudyConfig
-from mutune.tuning.partitioning import ProfilePartitioner
+from eigen.config import ProjectConfig, TuningConfig
+from eigen.models import EngineProfile
+from eigen.rendering import ExperimentRenderer
+from eigen.search_space import SearchSpace
+from eigen.study import StudyConfig
+from eigen.tuning.partitioning import ProfilePartitioner
 
 
 def main():
     root = Path(__file__).resolve().parents[1]
     sources = [
         *root.glob("*.py"),
-        *root.glob("src/mutune/**/*.py"),
-        *root.glob("src/mutune/**/*.py.txt"),
+        *root.glob("src/eigen/**/*.py"),
+        *root.glob("src/eigen/**/*.py.txt"),
         *root.glob("scripts/*.py"),
         *root.glob("tests/*.py"),
     ]
@@ -34,7 +34,7 @@ def main():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 module = node.module if isinstance(node, ast.ImportFrom) else None
-                if module and module.startswith("mutune"):
+                if module and module.startswith("eigen"):
                     target = root / "src" / module.replace(".", "/")
                     if (
                         not target.with_suffix(".py").exists()
@@ -43,7 +43,7 @@ def main():
                         errors.append(f"{path.relative_to(root)}: missing local module {module}")
         except (SyntaxError, UnicodeError) as error:
             errors.append(f"{path.relative_to(root)}: {error}")
-    profiles = list(root.glob("src/mutune/resources/profiles/*.json"))
+    profiles = list(root.glob("src/eigen/resources/profiles/*.json"))
     rendered_regions = 0
     for path in profiles:
         try:

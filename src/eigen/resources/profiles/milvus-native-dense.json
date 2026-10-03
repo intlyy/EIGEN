@@ -1,0 +1,589 @@
+{
+  "schema_version": 1,
+  "id": "milvus-native-dense",
+  "display_name": "Milvus dense native indexes",
+  "adapter": {
+    "plugin": "vector-db-benchmark",
+    "engine": "milvus",
+    "api_version": "1",
+    "options": {}
+  },
+  "capabilities": {
+    "vector_kinds": [
+      "dense"
+    ],
+    "distances": [
+      "l2",
+      "cosine",
+      "dot"
+    ],
+    "filters": [
+      "exact",
+      "range",
+      "geo"
+    ],
+    "indexes": [
+      "flat",
+      "ivf_flat",
+      "ivf_sq8",
+      "ivf_pq",
+      "hnsw",
+      "scann",
+      "autoindex"
+    ],
+    "notes": [
+      "Paper Table 3: seven dense index families and seven Milvus system knobs.",
+      "The adapter normalizes cosine vectors and searches with inner product.",
+      "IVF_PQ requires m to divide the dataset dimension. AUTOINDEX availability must be checked on the deployed Milvus distribution.",
+      "Geo-radius uses explicit client payload-ID prefilter compatibility; its cost is included in each Milvus search. It is not native Milvus 2.3 geo support."
+    ]
+  },
+  "experiment": {
+    "template": {
+      "name": "eigen",
+      "engine": "milvus",
+      "connection_params": {},
+      "collection_params": {},
+      "server_params": {
+        "milvus": {
+          "data_coord_segment_max_size_mb": 512,
+          "data_coord_segment_seal_proportion": 0.23,
+          "query_coord_auto_handoff": true,
+          "query_coord_auto_balance": true,
+          "common_graceful_time_ms": 5000,
+          "data_node_segment_insert_buf_size_bytes": 16777216,
+          "root_coord_min_segment_size_to_enable_index": 1024
+        }
+      },
+      "upload_params": {
+        "parallel": 16,
+        "index_type": "HNSW",
+        "index_params": {}
+      },
+      "search_params": [
+        {
+          "parallel": 1,
+          "top": 10,
+          "config": {}
+        }
+      ]
+    },
+    "runtime_defaults": {
+      "experiment_name": "eigen",
+      "connection_params": {},
+      "upload_parallel": 16,
+      "search_parallel": 1,
+      "top_k": 10
+    },
+    "runtime_bindings": {
+      "experiment_name": [
+        {
+          "pointer": "/name"
+        }
+      ],
+      "connection_params": [
+        {
+          "pointer": "/connection_params",
+          "mode": "merge"
+        }
+      ],
+      "upload_parallel": [
+        {
+          "pointer": "/upload_params/parallel"
+        }
+      ],
+      "search_parallel": [
+        {
+          "pointer": "/search_params/0/parallel"
+        }
+      ],
+      "top_k": [
+        {
+          "pointer": "/search_params/0/top"
+        }
+      ]
+    },
+    "runtime_context": [
+      "vector_size"
+    ],
+    "metric_pointers": {
+      "qps": "/results/rps",
+      "recall": "/results/mean_precisions",
+      "mean_latency": "/results/mean_time",
+      "p95_latency": "/results/p95_time"
+    }
+  },
+  "search_space": {
+    "domain": "milvus-native-dense-v1",
+    "partition_by": [
+      "index.type"
+    ],
+    "parameters": {
+      "index.type": {
+        "kind": "categorical",
+        "default": "hnsw",
+        "choices": [
+          "flat",
+          "ivf_flat",
+          "ivf_sq8",
+          "ivf_pq",
+          "hnsw",
+          "scann",
+          "autoindex"
+        ],
+        "effect": "index",
+        "bindings": [
+          {
+            "pointer": "/upload_params/index_type",
+            "value_map": {
+              "flat": "FLAT",
+              "ivf_flat": "IVF_FLAT",
+              "ivf_sq8": "IVF_SQ8",
+              "ivf_pq": "IVF_PQ",
+              "hnsw": "HNSW",
+              "scann": "SCANN",
+              "autoindex": "AUTOINDEX"
+            }
+          }
+        ],
+        "description": "Dense index family. This selector partitions the search space into engine-native regions."
+      },
+      "index.nlist": {
+        "kind": "integer",
+        "default": 128,
+        "bounds": [
+          1,
+          10000
+        ],
+        "step": 1,
+        "log": true,
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.type",
+            "op": "in",
+            "value": [
+              "ivf_flat",
+              "ivf_sq8",
+              "ivf_pq",
+              "scann"
+            ]
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/upload_params/index_params/nlist"
+          }
+        ],
+        "description": "Number of coarse clusters built by IVF-family and SCANN indexes."
+      },
+      "index.nprobe": {
+        "kind": "integer",
+        "default": 8,
+        "bounds": [
+          1,
+          100
+        ],
+        "step": 1,
+        "log": true,
+        "effect": "search",
+        "active_if": [
+          {
+            "parameter": "index.type",
+            "op": "in",
+            "value": [
+              "ivf_flat",
+              "ivf_sq8",
+              "ivf_pq",
+              "scann"
+            ]
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/search_params/0/config/nprobe"
+          }
+        ],
+        "description": "Number of coarse clusters searched per query."
+      },
+      "ivf_pq.m": {
+        "kind": "categorical",
+        "default": 4,
+        "choices": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          10,
+          12,
+          14,
+          15,
+          16,
+          20,
+          21,
+          24,
+          25,
+          28,
+          30,
+          32,
+          35,
+          40,
+          42,
+          48,
+          50,
+          60,
+          64,
+          70,
+          75,
+          80,
+          96,
+          100,
+          120,
+          128,
+          192,
+          256
+        ],
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "ivf_pq"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/upload_params/index_params/m"
+          }
+        ],
+        "description": "Number of product-quantization sub-vectors. It must divide the runtime vector dimension; the choices cover common benchmark dimensions within this repository search domain."
+      },
+      "ivf_pq.nbits": {
+        "kind": "integer",
+        "default": 8,
+        "bounds": [
+          1,
+          10
+        ],
+        "step": 1,
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "ivf_pq"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/upload_params/index_params/nbits"
+          }
+        ],
+        "description": "Bits used to encode each IVF_PQ sub-vector."
+      },
+      "hnsw.m": {
+        "kind": "integer",
+        "default": 16,
+        "bounds": [
+          4,
+          64
+        ],
+        "step": 1,
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/upload_params/index_params/M"
+          }
+        ],
+        "description": "Maximum HNSW graph connections per node."
+      },
+      "hnsw.ef_construction": {
+        "kind": "integer",
+        "default": 128,
+        "bounds": [
+          8,
+          512
+        ],
+        "step": 1,
+        "effect": "index",
+        "active_if": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/upload_params/index_params/efConstruction"
+          }
+        ],
+        "description": "Candidate-list width used while building the HNSW graph."
+      },
+      "hnsw.ef_search": {
+        "kind": "integer",
+        "default": 128,
+        "bounds": [
+          16,
+          1024
+        ],
+        "step": 1,
+        "log": true,
+        "effect": "search",
+        "active_if": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/search_params/0/config/ef"
+          }
+        ],
+        "description": "Candidate-list width used for each HNSW query."
+      },
+      "scann.reorder_k": {
+        "kind": "integer",
+        "default": 500,
+        "bounds": [
+          100,
+          1000
+        ],
+        "step": 1,
+        "log": true,
+        "effect": "search",
+        "active_if": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "scann"
+          }
+        ],
+        "bindings": [
+          {
+            "pointer": "/search_params/0/config/reorder_k"
+          }
+        ],
+        "description": "Number of SCANN candidates reranked with exact distances."
+      },
+      "milvus.segment_max_size_mb": {
+        "kind": "integer",
+        "default": 512,
+        "bounds": [
+          100,
+          10000
+        ],
+        "step": 1,
+        "log": true,
+        "effect": "server",
+        "bindings": [
+          {
+            "pointer": "/server_params/milvus/data_coord_segment_max_size_mb"
+          }
+        ],
+        "description": "Milvus 2.3.1 dataCoord.segment.maxSize server parameter in MiB."
+      },
+      "milvus.segment_seal_proportion": {
+        "kind": "float",
+        "default": 0.23,
+        "bounds": [
+          0.01,
+          0.99
+        ],
+        "step": 0.01,
+        "effect": "server",
+        "bindings": [
+          {
+            "pointer": "/server_params/milvus/data_coord_segment_seal_proportion"
+          }
+        ],
+        "description": "Milvus 2.3.1 dataCoord.segment.sealProportion server parameter."
+      },
+      "milvus.auto_handoff": {
+        "kind": "boolean",
+        "default": true,
+        "effect": "server",
+        "bindings": [
+          {
+            "pointer": "/server_params/milvus/query_coord_auto_handoff"
+          }
+        ],
+        "description": "Milvus 2.3.1 queryCoord.autoHandoff server parameter."
+      },
+      "milvus.auto_balance": {
+        "kind": "boolean",
+        "default": true,
+        "effect": "server",
+        "bindings": [
+          {
+            "pointer": "/server_params/milvus/query_coord_auto_balance"
+          }
+        ],
+        "description": "Milvus 2.3.1 queryCoord.autoBalance server parameter."
+      },
+      "milvus.graceful_time_ms": {
+        "kind": "integer",
+        "default": 5000,
+        "bounds": [
+          100,
+          100000
+        ],
+        "step": 100,
+        "log": true,
+        "effect": "server",
+        "bindings": [
+          {
+            "pointer": "/server_params/milvus/common_graceful_time_ms"
+          }
+        ],
+        "description": "Milvus 2.3.1 common.gracefulTime in milliseconds."
+      },
+      "milvus.insert_buffer_size_bytes": {
+        "kind": "integer",
+        "default": 16777216,
+        "bounds": [
+          1000,
+          10000000000
+        ],
+        "step": 1,
+        "log": true,
+        "effect": "server",
+        "bindings": [
+          {
+            "pointer": "/server_params/milvus/data_node_segment_insert_buf_size_bytes"
+          }
+        ],
+        "description": "Milvus 2.3.1 dataNode.segment.insertBufSize in bytes."
+      },
+      "milvus.min_segment_size_to_enable_index": {
+        "kind": "integer",
+        "default": 1024,
+        "bounds": [
+          100,
+          10000
+        ],
+        "step": 1,
+        "log": true,
+        "effect": "server",
+        "bindings": [
+          {
+            "pointer": "/server_params/milvus/root_coord_min_segment_size_to_enable_index"
+          }
+        ],
+        "description": "Milvus 2.3.1 rootCoord.minSegmentSizeToEnableIndex server parameter."
+      }
+    },
+    "constraints": [
+      {
+        "id": "nprobe-not-greater-than-nlist",
+        "left": {
+          "source": "candidate",
+          "key": "index.nprobe"
+        },
+        "op": "le",
+        "right": {
+          "source": "candidate",
+          "key": "index.nlist"
+        },
+        "when": [
+          {
+            "parameter": "index.type",
+            "op": "in",
+            "value": [
+              "ivf_flat",
+              "ivf_sq8",
+              "ivf_pq",
+              "scann"
+            ]
+          }
+        ],
+        "message": "index.nprobe must not exceed index.nlist"
+      },
+      {
+        "id": "ivf-pq-m-divides-vector-size",
+        "left": {
+          "source": "candidate",
+          "key": "ivf_pq.m"
+        },
+        "op": "divides",
+        "right": {
+          "source": "runtime",
+          "key": "vector_size"
+        },
+        "when": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "ivf_pq"
+          }
+        ],
+        "message": "ivf_pq.m must divide the workload vector_size"
+      },
+      {
+        "id": "hnsw-ef-search-at-least-top-k",
+        "left": {
+          "source": "candidate",
+          "key": "hnsw.ef_search"
+        },
+        "op": "ge",
+        "right": {
+          "source": "runtime",
+          "key": "top_k"
+        },
+        "when": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "hnsw"
+          }
+        ],
+        "message": "hnsw.ef_search must be at least top_k"
+      },
+      {
+        "id": "scann-reorder-at-least-top-k",
+        "left": {
+          "source": "candidate",
+          "key": "scann.reorder_k"
+        },
+        "op": "ge",
+        "right": {
+          "source": "runtime",
+          "key": "top_k"
+        },
+        "when": [
+          {
+            "parameter": "index.type",
+            "op": "eq",
+            "value": "scann"
+          }
+        ],
+        "message": "scann.reorder_k must be at least top_k"
+      }
+    ]
+  },
+  "lifecycle": {
+    "reset": "adapter",
+    "readiness": "adapter",
+    "rebuild_effects": [
+      "collection",
+      "index"
+    ],
+    "restart_effects": [
+      "server"
+    ],
+    "reusable_effects": [
+      "search"
+    ],
+    "supports_search_batching": true
+  }
+}

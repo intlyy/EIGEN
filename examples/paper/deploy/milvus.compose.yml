@@ -24,12 +24,12 @@ services:
       MINIO_ADDRESS: minio:9000
     depends_on: [etcd, minio]
     ports:
-      - "127.0.0.1:${MUTUNE_PORT:-19530}:19530"
-      - "127.0.0.1:${MUTUNE_HTTP_PORT:-9091}:9091"
+      - "127.0.0.1:${EIGEN_PORT:-19530}:19530"
+      - "127.0.0.1:${EIGEN_HTTP_PORT:-9091}:9091"
     volumes:
       - milvus-data:/var/lib/milvus
-    cpus: "${MUTUNE_CPUS:-16}"
-    mem_limit: "${MUTUNE_MEMORY:-64g}"
+    cpus: "${EIGEN_CPUS:-16}"
+    mem_limit: "${EIGEN_MEMORY:-64g}"
 volumes:
   etcd-data:
   minio-data:

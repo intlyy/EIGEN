@@ -39,11 +39,11 @@
     "mode": "docker_compose",
     "settings": {
       "compose_file": "./deploy/milvus.compose.yml",
-      "project_name": "mutune-milvus-mini-01",
+      "project_name": "eigen-milvus-mini-01",
       "endpoint": "127.0.0.1",
       "environment": {
-        "MUTUNE_PORT": "19532",
-        "MUTUNE_HTTP_PORT": "9093"
+        "EIGEN_PORT": "19532",
+        "EIGEN_HTTP_PORT": "9093"
       },
       "ready_check": {
         "kind": "tcp",
@@ -62,7 +62,7 @@
   "tuning": {
     "strategy": "calm",
     "budget": 20,
-    "initial_samples": 14,
+    "initial_samples": null,
     "proposals_per_round": 12,
     "evaluations_per_round": 4,
     "regions_per_round": 1,

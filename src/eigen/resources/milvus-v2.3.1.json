@@ -1,0 +1,546 @@
+{
+  "_notice": "Modified for EIGEN: converted upstream v2.3.1 configs/milvus.yaml to JSON; runtime applies seven candidate overrides.\n# Licensed to the LF AI & Data foundation under one\n# or more contributor license agreements. See the NOTICE file\n# distributed with this work for additional information\n# regarding copyright ownership. The ASF licenses this file\n# to you under the Apache License, Version 2.0 (the\n# \"License\"); you may not use this file except in compliance\n# with the License. You may obtain a copy of the License at\n#\n#     http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.",
+  "config": {
+    "etcd": {
+      "endpoints": "localhost:2379",
+      "rootPath": "by-dev",
+      "metaSubPath": "meta",
+      "kvSubPath": "kv",
+      "log": {
+        "level": "info",
+        "path": "stdout"
+      },
+      "ssl": {
+        "enabled": false,
+        "tlsCert": "/path/to/etcd-client.pem",
+        "tlsKey": "/path/to/etcd-client-key.pem",
+        "tlsCACert": "/path/to/ca.pem",
+        "tlsMinVersion": 1.3
+      },
+      "use": {
+        "embed": false
+      },
+      "data": {
+        "dir": "default.etcd"
+      }
+    },
+    "metastore": {
+      "type": "etcd"
+    },
+    "localStorage": {
+      "path": "/var/lib/milvus/data/"
+    },
+    "minio": {
+      "address": "localhost",
+      "port": 9000,
+      "accessKeyID": "minioadmin",
+      "secretAccessKey": "minioadmin",
+      "useSSL": false,
+      "bucketName": "a-bucket",
+      "rootPath": "files",
+      "useIAM": false,
+      "cloudProvider": "aws",
+      "iamEndpoint": null,
+      "logLevel": "fatal",
+      "region": "",
+      "useVirtualHost": false
+    },
+    "mq": {
+      "type": "default"
+    },
+    "pulsar": {
+      "address": "localhost",
+      "port": 6650,
+      "webport": 80,
+      "maxMessageSize": 5242880,
+      "tenant": "public",
+      "namespace": "default",
+      "requestTimeout": 60
+    },
+    "rocksmq": {
+      "path": "/var/lib/milvus/rdb_data",
+      "lrucacheratio": 0.06,
+      "rocksmqPageSize": 67108864,
+      "retentionTimeInMinutes": 4320,
+      "retentionSizeInMB": 8192,
+      "compactionInterval": 86400,
+      "compressionTypes": [
+        0,
+        0,
+        7,
+        7,
+        7
+      ]
+    },
+    "natsmq": {
+      "server": {
+        "port": 4222,
+        "storeDir": "/var/lib/milvus/nats",
+        "maxFileStore": 17179869184,
+        "maxPayload": 8388608,
+        "maxPending": 67108864,
+        "initializeTimeout": 4000,
+        "monitor": {
+          "trace": false,
+          "debug": false,
+          "logTime": true,
+          "logFile": "/tmp/milvus/logs/nats.log",
+          "logSizeLimit": 536870912
+        },
+        "retention": {
+          "maxAge": 4320,
+          "maxBytes": null,
+          "maxMsgs": null
+        }
+      }
+    },
+    "rootCoord": {
+      "dmlChannelNum": 16,
+      "maxDatabaseNum": 64,
+      "maxPartitionNum": 4096,
+      "minSegmentSizeToEnableIndex": 1024,
+      "importTaskExpiration": 900,
+      "importTaskRetention": 86400,
+      "enableActiveStandby": false,
+      "port": 53100,
+      "grpc": {
+        "serverMaxSendSize": 536870912,
+        "serverMaxRecvSize": 536870912,
+        "clientMaxSendSize": 268435456,
+        "clientMaxRecvSize": 268435456
+      }
+    },
+    "proxy": {
+      "timeTickInterval": 200,
+      "healthCheckTimeout": 3000,
+      "msgStream": {
+        "timeTick": {
+          "bufSize": 512
+        }
+      },
+      "maxNameLength": 255,
+      "maxFieldNum": 64,
+      "maxShardNum": 16,
+      "maxDimension": 32768,
+      "ginLogging": true,
+      "maxTaskNum": 1024,
+      "accessLog": {
+        "localPath": "/tmp/milvus_accesslog",
+        "filename": "milvus_access_log.log"
+      },
+      "http": {
+        "enabled": true,
+        "debug_mode": false
+      },
+      "port": 19530,
+      "internalPort": 19529,
+      "grpc": {
+        "serverMaxSendSize": 67108864,
+        "serverMaxRecvSize": 67108864,
+        "clientMaxSendSize": 268435456,
+        "clientMaxRecvSize": 268435456
+      }
+    },
+    "queryCoord": {
+      "autoHandoff": true,
+      "autoBalance": true,
+      "balancer": "ScoreBasedBalancer",
+      "globalRowCountFactor": 0.1,
+      "scoreUnbalanceTolerationFactor": 0.05,
+      "reverseUnBalanceTolerationFactor": 1.3,
+      "overloadedMemoryThresholdPercentage": 90,
+      "balanceIntervalSeconds": 60,
+      "memoryUsageMaxDifferencePercentage": 30,
+      "checkInterval": 1000,
+      "channelTaskTimeout": 60000,
+      "segmentTaskTimeout": 120000,
+      "distPullInterval": 500,
+      "heartbeatAvailableInterval": 10000,
+      "loadTimeoutSeconds": 600,
+      "checkHandoffInterval": 5000,
+      "port": 19531,
+      "grpc": {
+        "serverMaxSendSize": 536870912,
+        "serverMaxRecvSize": 536870912,
+        "clientMaxSendSize": 268435456,
+        "clientMaxRecvSize": 268435456
+      },
+      "taskMergeCap": 1,
+      "taskExecutionCap": 256,
+      "enableActiveStandby": false,
+      "brokerTimeout": 5000
+    },
+    "queryNode": {
+      "dataSync": {
+        "flowGraph": {
+          "maxQueueLength": 16,
+          "maxParallelism": 1024
+        }
+      },
+      "stats": {
+        "publishInterval": 1000
+      },
+      "segcore": {
+        "cgoPoolSizeRatio": 2.0,
+        "knowhereThreadPoolNumRatio": 4,
+        "chunkRows": 1024,
+        "growing": {
+          "enableIndex": true,
+          "nlist": 128,
+          "nprobe": 16
+        }
+      },
+      "loadMemoryUsageFactor": 1,
+      "enableDisk": false,
+      "maxDiskUsagePercentage": 95,
+      "cache": {
+        "enabled": true,
+        "memoryLimit": 2147483648
+      },
+      "grouping": {
+        "enabled": true,
+        "maxNQ": 1000,
+        "topKMergeRatio": 20
+      },
+      "scheduler": {
+        "receiveChanSize": 10240,
+        "unsolvedQueueSize": 10240,
+        "maxReadConcurrentRatio": 1,
+        "cpuRatio": 10,
+        "maxTimestampLag": 86400,
+        "scheduleReadPolicy": {
+          "name": "fifo",
+          "maxPendingTask": 10240,
+          "taskQueueExpire": 60,
+          "enableCrossUserGrouping": false,
+          "maxPendingTaskPerUser": 1024
+        }
+      },
+      "port": 21123,
+      "grpc": {
+        "serverMaxSendSize": 536870912,
+        "serverMaxRecvSize": 536870912,
+        "clientMaxSendSize": 268435456,
+        "clientMaxRecvSize": 268435456
+      }
+    },
+    "indexCoord": {
+      "bindIndexNodeMode": {
+        "enable": false,
+        "address": "localhost:22930",
+        "withCred": false,
+        "nodeID": 0
+      },
+      "segment": {
+        "minSegmentNumRowsToEnableIndex": 1024
+      }
+    },
+    "indexNode": {
+      "scheduler": {
+        "buildParallel": 1
+      },
+      "enableDisk": true,
+      "maxDiskUsagePercentage": 95,
+      "port": 21121,
+      "grpc": {
+        "serverMaxSendSize": 536870912,
+        "serverMaxRecvSize": 536870912,
+        "clientMaxSendSize": 268435456,
+        "clientMaxRecvSize": 268435456
+      }
+    },
+    "dataCoord": {
+      "channel": {
+        "watchTimeoutInterval": 300,
+        "balanceSilentDuration": 300,
+        "balanceInterval": 360
+      },
+      "segment": {
+        "maxSize": 512,
+        "diskSegmentMaxSize": 2048,
+        "sealProportion": 0.23,
+        "assignmentExpiration": 2000,
+        "maxLife": 86400,
+        "maxIdleTime": 600,
+        "minSizeFromIdleToSealed": 16,
+        "maxBinlogFileNumber": 32,
+        "smallProportion": 0.5,
+        "compactableProportion": 0.85,
+        "expansionRate": 1.25
+      },
+      "enableCompaction": true,
+      "compaction": {
+        "enableAutoCompaction": true,
+        "rpcTimeout": 10,
+        "maxParallelTaskNum": 100,
+        "indexBasedCompaction": true
+      },
+      "enableGarbageCollection": true,
+      "gc": {
+        "interval": 3600,
+        "missingTolerance": 3600,
+        "dropTolerance": 10800
+      },
+      "enableActiveStandby": false,
+      "port": 13333,
+      "grpc": {
+        "serverMaxSendSize": 536870912,
+        "serverMaxRecvSize": 536870912,
+        "clientMaxSendSize": 268435456,
+        "clientMaxRecvSize": 268435456
+      }
+    },
+    "dataNode": {
+      "dataSync": {
+        "flowGraph": {
+          "maxQueueLength": 16,
+          "maxParallelism": 1024
+        },
+        "maxParallelSyncTaskNum": 6
+      },
+      "segment": {
+        "insertBufSize": 16777216,
+        "deleteBufBytes": 67108864,
+        "syncPeriod": 600
+      },
+      "port": 21124,
+      "grpc": {
+        "serverMaxSendSize": 536870912,
+        "serverMaxRecvSize": 536870912,
+        "clientMaxSendSize": 268435456,
+        "clientMaxRecvSize": 268435456
+      },
+      "memory": {
+        "forceSyncEnable": true,
+        "forceSyncSegmentNum": 1,
+        "watermarkStandalone": 0.2,
+        "watermarkCluster": 0.5
+      },
+      "timetick": {
+        "byRPC": true
+      }
+    },
+    "log": {
+      "level": "info",
+      "file": {
+        "rootPath": null,
+        "maxSize": 300,
+        "maxAge": 10,
+        "maxBackups": 20
+      },
+      "format": "text",
+      "stdout": true
+    },
+    "grpc": {
+      "log": {
+        "level": "WARNING"
+      },
+      "serverMaxSendSize": 536870912,
+      "serverMaxRecvSize": 536870912,
+      "client": {
+        "compressionEnabled": false,
+        "dialTimeout": 200,
+        "keepAliveTime": 10000,
+        "keepAliveTimeout": 20000,
+        "maxMaxAttempts": 10,
+        "initialBackOff": 0.2,
+        "maxBackoff": 10,
+        "backoffMultiplier": 2.0
+      },
+      "clientMaxSendSize": 268435456,
+      "clientMaxRecvSize": 268435456
+    },
+    "tls": {
+      "serverPemPath": "configs/cert/server.pem",
+      "serverKeyPath": "configs/cert/server.key",
+      "caPemPath": "configs/cert/ca.pem"
+    },
+    "common": {
+      "chanNamePrefix": {
+        "cluster": "by-dev",
+        "rootCoordTimeTick": "rootcoord-timetick",
+        "rootCoordStatistics": "rootcoord-statistics",
+        "rootCoordDml": "rootcoord-dml",
+        "rootCoordDelta": "rootcoord-delta",
+        "search": "search",
+        "searchResult": "searchResult",
+        "queryTimeTick": "queryTimeTick",
+        "dataCoordStatistic": "datacoord-statistics-channel",
+        "dataCoordTimeTick": "datacoord-timetick-channel",
+        "dataCoordSegmentInfo": "segment-info-channel"
+      },
+      "subNamePrefix": {
+        "proxySubNamePrefix": "proxy",
+        "rootCoordSubNamePrefix": "rootCoord",
+        "queryNodeSubNamePrefix": "queryNode",
+        "dataCoordSubNamePrefix": "dataCoord",
+        "dataNodeSubNamePrefix": "dataNode"
+      },
+      "defaultPartitionName": "_default",
+      "defaultIndexName": "_default_idx",
+      "entityExpiration": -1,
+      "indexSliceSize": 16,
+      "threadCoreCoefficient": {
+        "highPriority": 10,
+        "middlePriority": 5,
+        "lowPriority": 1
+      },
+      "DiskIndex": {
+        "MaxDegree": 56,
+        "SearchListSize": 100,
+        "PQCodeBudgetGBRatio": 0.125,
+        "BuildNumThreadsRatio": 1,
+        "SearchCacheBudgetGBRatio": 0.1,
+        "LoadNumThreadRatio": 8,
+        "BeamWidthRatio": 4
+      },
+      "gracefulTime": 5000,
+      "gracefulStopTimeout": 1800,
+      "storageType": "minio",
+      "simdType": "auto",
+      "security": {
+        "authorizationEnabled": false,
+        "tlsMode": 0
+      },
+      "session": {
+        "ttl": 60,
+        "retryTimes": 30
+      },
+      "preCreatedTopic": {
+        "enabled": false,
+        "names": [
+          "topic1",
+          "topic2"
+        ],
+        "timeticker": "timetick-channel"
+      },
+      "ImportMaxFileSize": 17179869184,
+      "locks": {
+        "metrics": {
+          "enable": false
+        },
+        "threshold": {
+          "info": 500,
+          "warn": 1000
+        }
+      }
+    },
+    "quotaAndLimits": {
+      "enabled": true,
+      "limits": {
+        "maxCollectionNum": 65536,
+        "maxCollectionNumPerDB": 65536
+      },
+      "quotaCenterCollectInterval": 3,
+      "ddl": {
+        "enabled": false,
+        "collectionRate": -1,
+        "partitionRate": -1
+      },
+      "indexRate": {
+        "enabled": false,
+        "max": -1
+      },
+      "flushRate": {
+        "enabled": false,
+        "max": -1
+      },
+      "compactionRate": {
+        "enabled": false,
+        "max": -1
+      },
+      "dml": {
+        "enabled": false,
+        "insertRate": {
+          "collection": {
+            "max": -1
+          },
+          "max": -1
+        },
+        "upsertRate": {
+          "collection": {
+            "max": -1
+          },
+          "max": -1
+        },
+        "deleteRate": {
+          "collection": {
+            "max": -1
+          },
+          "max": -1
+        },
+        "bulkLoadRate": {
+          "collection": {
+            "max": -1
+          },
+          "max": -1
+        }
+      },
+      "dql": {
+        "enabled": false,
+        "searchRate": {
+          "collection": {
+            "max": -1
+          },
+          "max": -1
+        },
+        "queryRate": {
+          "collection": {
+            "max": -1
+          },
+          "max": -1
+        }
+      },
+      "limitWriting": {
+        "forceDeny": false,
+        "ttProtection": {
+          "enabled": false,
+          "maxTimeTickDelay": 300
+        },
+        "memProtection": {
+          "enabled": true,
+          "dataNodeMemoryLowWaterLevel": 0.85,
+          "dataNodeMemoryHighWaterLevel": 0.95,
+          "queryNodeMemoryLowWaterLevel": 0.85,
+          "queryNodeMemoryHighWaterLevel": 0.95
+        },
+        "growingSegmentsSizeProtection": {
+          "enabled": false,
+          "minRateRatio": 0.5,
+          "lowWaterLevel": 0.2,
+          "highWaterLevel": 0.4
+        },
+        "diskProtection": {
+          "enabled": true,
+          "diskQuota": -1,
+          "diskQuotaPerCollection": -1
+        }
+      },
+      "limitReading": {
+        "forceDeny": false,
+        "queueProtection": {
+          "enabled": false,
+          "nqInQueueThreshold": -1,
+          "queueLatencyThreshold": -1
+        },
+        "resultProtection": {
+          "enabled": false,
+          "maxReadResultRate": -1
+        },
+        "coolOffSpeed": 0.9
+      }
+    },
+    "trace": {
+      "exporter": "stdout",
+      "sampleFraction": 0,
+      "jaeger": {
+        "url": null
+      }
+    },
+    "autoIndex": {
+      "params": {
+        "build": "{\"M\": 18,\"efConstruction\": 240,\"index_type\": \"HNSW\", \"metric_type\": \"IP\"}"
+      }
+    }
+  }
+}

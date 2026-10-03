@@ -2,11 +2,11 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.16.0
     ports:
-      - "127.0.0.1:${MUTUNE_PORT:-6333}:6333"
-      - "127.0.0.1:${MUTUNE_GRPC_PORT:-6334}:6334"
+      - "127.0.0.1:${EIGEN_PORT:-6333}:6333"
+      - "127.0.0.1:${EIGEN_GRPC_PORT:-6334}:6334"
     volumes:
       - qdrant-data:/qdrant/storage
-    cpus: "${MUTUNE_CPUS:-16}"
-    mem_limit: "${MUTUNE_MEMORY:-64g}"
+    cpus: "${EIGEN_CPUS:-16}"
+    mem_limit: "${EIGEN_MEMORY:-64g}"
 volumes:
   qdrant-data:

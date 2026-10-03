@@ -6,8 +6,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from mutune.cli import main
+from eigen.cli import main
+from eigen.errors import RunnerError
 
 
 def project_payload(artifact_dir: Path) -> dict:
@@ -137,13 +139,43 @@ class CliTests(unittest.TestCase):
             code, output, error = self.invoke("tune", str(config_path))
             self.assertEqual(code, 0, error)
             result = json.loads(output)
+            self.assertEqual(json.loads((artifacts / "result.json").read_text()), result)
+            self.assertEqual(result["metrics_origin"], "synthetic")
+            self.assertGreaterEqual(result["invocation_wall_s"], 0)
             self.assertTrue(result["complete"])
             self.assertEqual(result["completed_evaluations"], 3)
-            self.assertIn("[muTune] preparing", error)
+            self.assertIn("[EIGEN] preparing", error)
             self.assertIn("simulated evaluation", error)
-            self.assertIn("[muTune] completed sequence=", error)
+            self.assertIn("[EIGEN] completed sequence=", error)
             self.assertTrue((artifacts / "history.jsonl").is_file())
             self.assertTrue((artifacts / "run_manifest.json").is_file())
+
+    def test_failed_tune_invalidates_a_previous_successful_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            artifacts = root / "artifacts"
+            artifacts.mkdir()
+            config = root / "project.json"
+            config.write_text(json.dumps(project_payload(artifacts)), encoding="utf-8")
+            (artifacts / "result.json").write_text(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "complete": True,
+                        "best_candidate": {"x": 1},
+                        "best_metrics": {"qps": 123},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch("eigen.cli.create_runner", side_effect=RunnerError("unavailable")):
+                code, _, _ = self.invoke("tune", str(config))
+            self.assertEqual(code, 2)
+            result = json.loads((artifacts / "result.json").read_text())
+            self.assertEqual(result["status"], "failed")
+            self.assertIsNone(result["best_candidate"])
+            self.assertIsNone(result["best_metrics"])
+            self.assertNotIn("complete", result)
 
     def test_invalid_candidate_returns_nonzero(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

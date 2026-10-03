@@ -9,10 +9,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from mutune.errors import RunnerError
-from mutune.runners.vectordb_benchmark import _install_engine_overlays
+from eigen.errors import RunnerError
+from eigen.runners.vectordb_benchmark import _install_engine_overlays
 
-_OVERLAY_PACKAGE = "mutune.resources.vectordb_benchmark"
+_OVERLAY_PACKAGE = "eigen.resources.vectordb_benchmark"
 
 
 class _IncompatibilityError(Exception):

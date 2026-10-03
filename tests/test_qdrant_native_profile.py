@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from mutune.errors import CandidateError
-from mutune.profiles import load_profile
-from mutune.rendering import render_experiment
-from mutune.search_space import SearchSpace
-from mutune.tuning import ProfilePartitioner
+from eigen.errors import CandidateError
+from eigen.profiles import load_profile
+from eigen.rendering import render_experiment
+from eigen.search_space import SearchSpace
+from eigen.tuning import ProfilePartitioner
 
 
 class QdrantNativeProfileTests(unittest.TestCase):

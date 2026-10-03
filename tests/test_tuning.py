@@ -5,13 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mutune.api import BaseRunner, Observation, RunnerContext, RunStatus
-from mutune.config import ExecutionConfig, TuningConfig
-from mutune.errors import RunnerError
-from mutune.models import SearchSpaceSpec
-from mutune.profiles import load_profile
-from mutune.search_space import SearchSpace
-from mutune.tuning import (
+from eigen.api import BaseRunner, Observation, RunnerContext, RunStatus
+from eigen.config import ExecutionConfig, TuningConfig
+from eigen.errors import RunnerError
+from eigen.models import SearchSpaceSpec
+from eigen.profiles import load_profile
+from eigen.search_space import SearchSpace
+from eigen.tuning import (
     ConstraintAwareAcquisition,
     EvaluationRecord,
     HistoryStore,
@@ -20,7 +20,7 @@ from mutune.tuning import (
     Tuner,
     TuningError,
 )
-from mutune.utils import canonical_json, fingerprint
+from eigen.utils import canonical_json, fingerprint
 
 
 class FakeRunner(BaseRunner):
@@ -177,7 +177,7 @@ class EndToEndTunerTests(unittest.TestCase):
             # A v1 QPS-only archive is not a valid continuation of the new policy.
             manifest_path = artifact_dir / "run_manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(manifest["resume_contract"]["optimizer_contract_version"], 2)
+            self.assertEqual(manifest["resume_contract"]["optimizer_contract_version"], 3)
             manifest["resume_contract"].pop("optimizer_contract_version")
             manifest["resume_contract"].pop("guidance_objectives")
             manifest["resume_contract_hash"] = fingerprint(manifest["resume_contract"], length=64)

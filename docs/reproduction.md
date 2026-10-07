@@ -3,7 +3,7 @@
 This guide targets the accompanying [current manuscript](EIGEN_VLDB.pdf), Sections
 6.1–6.7. It provides executable preparation and aggregation tools.
 
-## 1. Prepare and record the environment
+## 1. Prepare the environment
 
 Use Python 3.11+ for EIGEN and a separate compatible environment for
 [vector-db-benchmark](https://github.com/qdrant/vector-db-benchmark). Install from
@@ -18,53 +18,16 @@ python -m unittest discover -s tests
 The core dependency is Pydantic; Mini-DB builders additionally use NumPy, h5py and
 FAISS. Docker Compose, the database SDKs and benchmark dependencies are external
 requirements. Read the [adapter contract](benchmark-integration.md) before
-selecting a benchmark checkout. The reviewed source commit in that document is
-a compatibility reference, not proof that all engine/SDK combinations have been
-tested. Run at least one real upload/index/query smoke evaluation for each
-engine/profile before starting a large matrix. Check that every declared family
-is actually supported by the server distribution, especially Milvus AUTOINDEX.
+selecting a benchmark checkout. Run at least one real upload/index/query smoke evaluation for each
+engine/profile before starting a large matrix.
 
-Paper versions: Milvus 2.3.1, Qdrant 1.16.0, pgvector 0.6.2. The PostgreSQL 16 base
-image and local Compose arrangement are repository choices. The paper uses
-16-core 3.60-GHz CPUs and 64 GB RAM per machine, with concurrent Mini-DB workers
-on separate identically provisioned machines. Generated files initially use
-localhost containers. Review host placement, CPU affinity, memory and storage
-isolation; several containers sharing one machine do not reproduce that testbed.
-The current Compose runner operates locally and does not automate remote worker
-placement. Reproducing the paper's multi-machine arrangement requires remote
-orchestration integration and per-machine setup. Merely changing a host or using
-the external lifecycle is insufficient: the external lifecycle rejects tuned
-system-knob reconfiguration. A single-host run with documented resource isolation
-is a new experimental deployment, not the exact original machine arrangement.
-The Compose templates delete their own experimental volumes on stage shutdown.
+Paper versions: Milvus 2.3.1, Qdrant 1.16.0, pgvector 0.6.2. 
 
-Save actual environment information with each published experiment. These are
-commands to run in the corresponding environments, not bundled measurements:
-
-```bash
-git rev-parse HEAD
-python --version
-python -m pip freeze
-git -C external/vector-db-benchmark rev-parse HEAD
-/absolute/path/to/benchmark-python -m pip freeze
-docker version
-docker compose version
-docker image inspect milvusdb/milvus:v2.3.1
-docker image inspect qdrant/qdrant:v1.16.0
-```
-
-Record PostgreSQL/pgvector server versions and the locally built image digest as
-well. Save OS/kernel, physical machine identifiers, CPU model, memory, storage,
-network placement, exact project JSONs, dataset hashes, model identifier/endpoint,
-request settings and token rates. Do not put API keys in JSON or snapshots. The
-project pins a benchmark *source-content hash* but deliberately does not invent a
-verified dependency lock or historical container digest. An exact environment
-lock requires the authors' tested environment.
 
 ## 2. Obtain and verify the six source workloads
 
 The following specifications and links are transcribed from Table 3 / Section
-6.1 of the supplied manuscript; downloads are not performed by this repository.
+6.1 of the supplied manuscript.
 
 | Inventory name | Vectors | Queries | Dimensions | Metric | Manuscript source |
 | --- | ---: | ---: | ---: | --- | --- |
@@ -77,18 +40,7 @@ The following specifications and links are transcribed from Table 3 / Section
 
 Dense source files must use the benchmark HDF5 layout (`train`, `test`, exact
 `neighbors` and distances where required by the selected reader). The Mini-DB
-builder recomputes ground truth for each Mini-DB; it does not repair missing or
-wrong *full-database* ground truth. Preserve the query set and document any
-conversion, normalization, subsampling, duplicate handling and exact-neighbor
-procedure. Tiny5M/Msong archive-to-HDF5 conversion and the exact 100,000-vector
-Geo-radius subset are not reconstructed from the paper. In particular, the Geo
-download name says `1m` while Table 3 says 100,000: the original subset/query
-recipe or author-supplied ready-to-use workload is required for an exact match.
-Do not silently choose a subset and label it the original paper dataset.
-
-Geo-radius uses a directory with `vectors.npy`, `payloads.jsonl` and
-`tests.jsonl`. Payload rows must correspond to vector rows; tests contain the
-query vector, `and`/`or` geo-radius conditions and exact eligible `closest_ids`.
+builder recomputes ground truth for each Mini-DB.
 
 ## 3. Build independently sampled Mini-DBs
 
@@ -100,16 +52,7 @@ eigen-build-geo-minidbs --input data/geo-radius/source --output-dir data/geo-rad
 ```
 
 These calls perform real data processing and exact ground-truth construction,
-but do not call an LLM or database. Each manifest records source and Mini-DB
-hashes, sampling seeds, partition information and construction timing. Rebuild
-older Mini-DBs: the matrix generator requires the current stratified allocation
-version `minimum-one-original-population-largest-remainder-v2`, and refuses old
-or unknown versions rather than treating old quota allocations as current results.
-Never modify the data after the manifest is generated. Record the bucket width, hash
-bits and seeds: their CLI defaults are implementation choices where the paper
-does not specify exact values. The default query `top_k` in project generation
-is 10; explicitly set the value used by the experiment and ensure manifest
-ground truth has at least that many neighbors.
+but do not call an LLM or database. Each manifest records source and Mini-DB hashes, sampling seeds, partition information and construction timing. 
 
 For Uniform-Mini, rebuild into a **different** directory using the same input,
 size, query set and seeds, adding `--sampling-method uniform` to either builder.
@@ -141,9 +84,7 @@ local evaluations per Mini-DB, `initial_samples: null` (one per conditional
 region, seven on Milvus), 12 proposals, batch size 4, stability weight 1 and
 shortlist L = 5. Cross-Mini-DB and final measurements are additional physical
 evaluations. `--budget-per-minidb`, `--top-l`, `--top-k`, `--search-parallel`,
-`--upload-parallel`, `--recalls` and `--seeds` are explicit overrides. Multiple
-tuning seeds rerun optimization on the same manifests; independent data-sampling
-replicates require separately built and listed manifests.
+`--upload-parallel`, `--recalls` and `--seeds` are explicit overrides.
 
 The script writes project/study JSONs, copied deployment templates,
 `run-plan.json` and `COMMANDS.md`. It executes zero experiments. Configs and plan
@@ -165,12 +106,7 @@ python scripts/prepare_reproduction.py --inventory sensitivity-input.json --benc
 Mean-Only sets stability weight to zero and retains cross-view feasibility checks.
 Uniform-Mini retains the rest of the framework. Direct-Full calls CALM's local
 optimizer on the original database without Mini-DB construction or transfer.
-It requires an explicit budget, since EIGEN's 60 local evaluations do not include
-cross-view and shortlist measurements. To reproduce the equal-*total*-physical-
-evaluation comparison, first obtain the EIGEN run's actual physical count, then
-set the Direct-Full budget accordingly. The paper's equal-aggregate-time variant
-needs a validated time-budget stopping policy; this generator does not implement
-one and does not claim that a fixed evaluation count is time-equivalent.
+
 
 Use `--engines qdrant pgvector` for engine variants; unsupported pgvector Geo
 cells are explicitly recorded in `skipped`, not simulated. Use `--backbones
@@ -199,15 +135,11 @@ Run matrix cells **serially** unless you assign additional distinct endpoints:
 the templates reuse ports between cells. Mini-DB workers inside one study run
 concurrently. Use fresh artifact directories for paper timing. Local optimizer
 resume does not reconstruct the duration of a cold run; cross-validation and
-full validation are rerun on each invocation. Any `--dry-run` output is synthetic
-and must never be treated as an experimental result.
+full validation are rerun on each invocation.
 
 The summary writes `results.json` and `results.csv`, one row per planned cell.
 It records missing cells as `missing`, malformed results as `invalid_artifact`,
-and leaves absent metrics/times/costs null (blank in CSV). Synthetic cells are
-marked explicitly and excluded from measured QPS/recall columns. The full raw
-artifact tree remains the source of truth; preserve histories, benchmark output,
-model calls, ranking and cross-validation matrices with published results.
+and leaves absent metrics/times/costs null (blank in CSV). 
 
 The paper's aggregate time sums worker time, not elapsed parallel-stage time.
 `paper_aggregate_total_s` is available only for fully instrumented cold studies.
@@ -216,5 +148,4 @@ Its `paper_components_s` comprises Mini-DB construction, Mini-DB tuning
 numerical cross-Mini-DB aggregation and full-database validation. Direct-Full
 uses its single-worker invocation time only for complete cold runs, with no
 invented five-stage breakdown. Missing usage or unspecified token rates yield
-unknown total API cost. No averages, speedups, error bars or baseline values are
-fabricated for missing runs.
+unknown total API cost. 

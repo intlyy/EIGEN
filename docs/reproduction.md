@@ -95,10 +95,10 @@ directory. Existing output directories must be empty.
 Useful matrix variants:
 
 ```bash
-# Supported framework ablations; inventory must include uniform manifests.
+# Framework ablations.
 python scripts/prepare_reproduction.py --inventory tiny5m-input.json --benchmark-repo external/vector-db-benchmark --benchmark-python /absolute/path/to/benchmark-python --output experiments/ablations --recalls 0.95 --methods eigen mean-only uniform-mini
-# Direct-Full: 60 here is an explicitly chosen full-database search budget.
-python scripts/prepare_reproduction.py --inventory tiny5m-input.json --benchmark-repo external/vector-db-benchmark --benchmark-python /absolute/path/to/benchmark-python --output experiments/direct --recalls 0.95 --methods direct-full --direct-full-budget 60
+# Direct-Full. Please replace n with the actual total number of physical executions.
+python scripts/prepare_reproduction.py --inventory tiny5m-input.json --benchmark-repo external/vector-db-benchmark --benchmark-python /absolute/path/to/benchmark-python --output experiments/direct --recalls 0.95 --methods direct-full --direct-full-budget n
 # Sensitivity: list the independently built M/ratio manifests in the inventory.
 python scripts/prepare_reproduction.py --inventory sensitivity-input.json --benchmark-repo external/vector-db-benchmark --benchmark-python /absolute/path/to/benchmark-python --output experiments/sensitivity --recalls 0.95
 ```

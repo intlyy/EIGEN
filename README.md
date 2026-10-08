@@ -106,7 +106,7 @@ fixed configurations. `random` and `knn` are explicit ablations.
 
 ### Mini-DB workers on separate machines
 
-For the deployment in paper Section 6.1, add `remote_workers` to `study.json`,
+To run Mini-DB workers concurrently on separate machines, add `remote_workers` to `study.json`,
 with one entry per `minidbs` project in the same order:
 
 ```json

@@ -104,6 +104,53 @@ Dollar costs are only calculated when both token rates are explicitly supplied.
 `eigen evaluate PROJECT.json --candidate candidate.json --repeat 3` evaluates
 fixed configurations. `random` and `knn` are explicit ablations.
 
+### Mini-DB workers on separate machines
+
+For the deployment in paper Section 6.1, add `remote_workers` to `study.json`,
+with one entry per `minidbs` project in the same order:
+
+```json
+"remote_workers": [
+  {"host": "eigen-worker-0", "project_config": "/srv/eigen/qdrant-mini-00.json", "python_executable": "/srv/eigen/.venv/bin/python"},
+  {"host": "eigen-worker-1", "project_config": "/srv/eigen/qdrant-mini-01.json", "python_executable": "/srv/eigen/.venv/bin/python"},
+  {"host": "eigen-worker-2", "project_config": "/srv/eigen/qdrant-mini-02.json", "python_executable": "/srv/eigen/.venv/bin/python"}
+]
+```
+
+Use distinct SSH hosts/aliases pointing to separate Linux machines with the same
+hardware specifications. The coordinator needs `ssh` and SFTP-based `scp`
+(OpenSSH 9 or newer), with noninteractive authentication and known host keys.
+Configure ports, keys and jump hosts in SSH config. `timeout_s` is optional and
+defaults to seven days per SSH/SCP command.
+
+Install this same EIGEN source and the benchmark dependencies on every worker.
+Copy each worker's project JSON, deployment files and its exact MiniDB data to
+that machine. Update its `artifact_dir`, runner paths (`repo_path`,
+`python_executable`, `dataset_path`, `dataset_cache`) and database/Compose
+addresses for that machine. Other experiment settings, including the profile,
+dataset label, tuning seed, budget, hardware description and LLM configuration,
+must match its coordinator project. Set API keys and database credentials in
+the environment on each worker; the coordinator does not forward environment
+variables.
+
+Run the usual `eigen study study.json`. Both independent tuning and physical
+cross-Mini-DB validation execute concurrently over SSH. Loopback database ports
+and Compose names may repeat across separate machines. Candidate merging,
+ranking and full-database validation execute on the coordinator. The worker
+checks the experiment contract and MiniDB checksum before starting evaluations.
+`--validate-only` checks coordinator files; it does not contact workers.
+
+Artifacts are copied back into the usual `mini-XX/tuning` and
+`mini-XX/validation` directories, so `summarize_study.py` still works. Remote
+artifacts remain under the worker project's `artifact_dir/studies/<run-id>/`;
+rerunning the same study resumes its local tuning there. Embedded absolute
+artifact paths refer to the worker. With `keep_workspace: true`, SCP also copies
+benchmark workspaces and their data; set `keep_workspace: false` in both copies
+of each project to retain raw logs without those workspace copies. Paper cost
+sums measured worker execution times; SSH/SCP overhead appears only in elapsed
+pipeline time.
+Omit `remote_workers` to use the local thread-based execution.
+
 ## Artifacts and verification
 
 The study writes `study_manifest.json`, each worker's `history.jsonl`,

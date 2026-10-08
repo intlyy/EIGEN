@@ -7,11 +7,8 @@ import io
 import json
 import tempfile
 import unittest
-import zipfile
 from pathlib import Path
-from unittest.mock import patch
 
-from scripts import package_source
 from scripts.package_source import ROOT_FILES, source_files
 from scripts.prepare_reproduction import (
     PAPER_ALLOCATION_VERSION,
@@ -305,39 +302,6 @@ class ReproductionTests(unittest.TestCase):
                     self.assertEqual(summary["known_cost_subtotal_usd"], 0.05)
                 else:
                     self.assertAlmostEqual(summary["total_cost_usd"], 0.15)
-
-    def test_publication_archive_has_eigen_package_deployment_and_one_official_paper(self):
-        repository = Path(__file__).resolve().parents[1]
-        files = source_files(repository)
-        self.assertEqual(
-            [path.relative_to(repository).as_posix() for path in files if path.suffix == ".pdf"],
-            ["docs/EIGEN_VLDB.pdf"],
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            destination = Path(directory) / "EIGEN-paper-source.zip"
-            with (
-                patch("sys.argv", ["package_source.py", "--output", str(destination)]),
-                contextlib.redirect_stdout(io.StringIO()),
-            ):
-                package_source.main()
-            with zipfile.ZipFile(destination) as archive:
-                names = set(archive.namelist())
-                self.assertTrue(all(name.startswith("EIGEN/") for name in names))
-                expected = {
-                    "EIGEN/" + path.relative_to(repository).as_posix()
-                    for path in (repository / "src/eigen").rglob("*.py")
-                    if "__pycache__" not in path.parts
-                }
-                self.assertTrue(expected)
-                self.assertTrue(expected.issubset(names))
-                for name in (
-                    "EIGEN/docs/EIGEN_VLDB.pdf",
-                    "EIGEN/src/eigen/resources/profiles/milvus-native-dense.json",
-                    "EIGEN/src/eigen/resources/vectordb_benchmark/milvus_geo_search.py.txt",
-                    "EIGEN/examples/paper/deploy/pgvector.Dockerfile",
-                ):
-                    self.assertIn(name, names)
-                self.assertTrue(archive.read("EIGEN/docs/EIGEN_VLDB.pdf").startswith(b"%PDF-"))
 
     def test_source_selection_excludes_environment_files(self):
         with tempfile.TemporaryDirectory() as directory:

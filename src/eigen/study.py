@@ -22,6 +22,7 @@ from eigen.timing import finalize_study_timings
 from eigen.tuning.history import candidate_key
 from eigen.tuning.pareto import feasible
 from eigen.utils import atomic_write_json, fingerprint
+from eigen.worker import RemoteWorker, run_remote_worker
 
 
 class StudyConfig(StrictModel):
@@ -33,11 +34,18 @@ class StudyConfig(StrictModel):
     artifact_dir: str = "./artifacts/study"
     top_l: int = Field(default=5, gt=0)
     stability_weight: float = Field(default=1.0, ge=0)
+    remote_workers: list[RemoteWorker] | None = None
 
     @model_validator(mode="after")
     def distinct_projects(self) -> StudyConfig:
         if len(set(self.minidbs)) != len(self.minidbs):
             raise ValueError("minidbs must reference distinct project configs")
+        if self.remote_workers is not None:
+            if len(self.remote_workers) != len(self.minidbs):
+                raise ValueError("remote_workers must contain one entry per MiniDB in order")
+            hosts = [worker.host.rsplit("@", 1)[-1].lower() for worker in self.remote_workers]
+            if len(set(hosts)) != len(hosts):
+                raise ValueError("remote MiniDB workers require separate machines/SSH host aliases")
         return self
 
 
@@ -57,12 +65,16 @@ def load_study(path: str | Path) -> LoadedStudy:
     full = load_project(source.parent / cfg.full_database)
     manifest_path = (source.parent / cfg.minidb_manifest).resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    validate_study_projects(projects, full, manifest, manifest_path.parent)
+    validate_study_projects(projects, full, manifest, manifest_path.parent, cfg.remote_workers)
     return LoadedStudy(cfg, projects, full, (source.parent / cfg.artifact_dir).resolve(), manifest)
 
 
 def validate_study_projects(
-    projects: list[LoadedProject], full: LoadedProject, manifest: dict[str, Any], manifest_dir: Path
+    projects: list[LoadedProject],
+    full: LoadedProject,
+    manifest: dict[str, Any],
+    manifest_dir: Path,
+    remote_workers: list[RemoteWorker] | None = None,
 ) -> None:
     """Check identities before starting any expensive or stateful work."""
     all_projects = [*projects, full]
@@ -87,7 +99,7 @@ def validate_study_projects(
     # The benchmark uses fixed table/collection names, so separate ports/hosts
     # and owned Compose project names are mandatory for concurrent workers.
     endpoints = []
-    for project in projects:
+    for i, project in enumerate(projects):
         execution = project.config.execution
         host = project.config.lifecycle.settings.get("endpoint", execution.host)
         address = urlsplit(host if "://" in host else "//" + host)
@@ -98,12 +110,16 @@ def validate_study_projects(
         port = execution.connection_params.get(
             "port", address.port or defaults.get(project.profile.adapter.engine)
         )
-        endpoints.append((hostname, port))
+        machine = remote_workers[i].host if remote_workers else "local"
+        endpoints.append((machine, hostname, port))
     if len(set(endpoints)) != len(endpoints):
         raise ValueError("parallel MiniDB workers require distinct database endpoints")
     owned = [
-        p.config.lifecycle.settings.get("project_name", p.config.experiment_name)
-        for p in projects
+        (
+            remote_workers[i].host if remote_workers else "local",
+            p.config.lifecycle.settings.get("project_name", p.config.experiment_name),
+        )
+        for i, p in enumerate(projects)
         if p.config.lifecycle.mode == "docker_compose"
     ]
     if len(set(owned)) != len(owned):
@@ -220,7 +236,9 @@ def _run_study(study: LoadedStudy, *, tune_fn: Any, evaluate_fn: Any) -> dict[st
     # A stage run never silently consumes an old cross-validation matrix.
     # Local Tuner histories independently resume under their strict contracts.
     contract = {
-        "study": cfg.model_dump(),
+        "study": cfg.model_dump(
+            exclude={"remote_workers"} if cfg.remote_workers is None else set()
+        ),
         "minidb_manifest": study.manifest,
         "projects": [
             fingerprint(p.config.model_dump(mode="json"), length=64)
@@ -245,14 +263,27 @@ def _run_study(study: LoadedStudy, *, tune_fn: Any, evaluate_fn: Any) -> dict[st
     ]
     start = time.monotonic()
 
-    def timed_tune(project):
+    remote_run_id = fingerprint(contract)
+
+    def timed_tune(indexed_project):
+        i, project = indexed_project
         worker_started = time.monotonic()
-        local_result = tune_fn(project)
+        if cfg.remote_workers is None:
+            local_result = tune_fn(project)
+            worker_wall_s = time.monotonic() - worker_started
+        else:
+            local_result, worker_wall_s = run_remote_worker(
+                cfg.remote_workers[i],
+                study.minidbs[i],
+                project.artifact_dir,
+                stage="tuning",
+                run_id=remote_run_id,
+            )
         finished = time.monotonic()
-        return local_result, finished, finished - worker_started
+        return local_result, finished, worker_wall_s
 
     with ThreadPoolExecutor(max_workers=len(local_projects)) as pool:
-        completed = list(pool.map(timed_tune, local_projects))
+        completed = list(pool.map(timed_tune, enumerate(local_projects)))
     timings["parallel_tuning_wall_s"] = time.monotonic() - start
     timings["critical_path_worker"] = max(range(len(completed)), key=lambda i: completed[i][1])
     timings["local_optimization_worker_wall_s"] = [item[2] for item in completed]
@@ -293,13 +324,23 @@ def _run_study(study: LoadedStudy, *, tune_fn: Any, evaluate_fn: Any) -> dict[st
         ]
         start = time.monotonic()
 
-        def timed_cross_validation(project):
+        def timed_cross_validation(indexed_project):
+            i, project = indexed_project
             worker_started = time.monotonic()
+            if cfg.remote_workers is not None:
+                return run_remote_worker(
+                    cfg.remote_workers[i],
+                    study.minidbs[i],
+                    project.artifact_dir,
+                    stage="validation",
+                    run_id=remote_run_id,
+                    candidates=candidates,
+                )
             measurements = evaluate_fn(project, candidates)
             return measurements, time.monotonic() - worker_started
 
         with ThreadPoolExecutor(max_workers=len(validation_projects)) as pool:
-            cross_completed = list(pool.map(timed_cross_validation, validation_projects))
+            cross_completed = list(pool.map(timed_cross_validation, enumerate(validation_projects)))
         timings["cross_validation_wall_s"] = time.monotonic() - start
         timings["cross_validation_worker_wall_s"] = [item[1] for item in cross_completed]
         matrix = [item[0] for item in cross_completed]
